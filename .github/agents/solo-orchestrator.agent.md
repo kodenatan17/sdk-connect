@@ -259,3 +259,32 @@ If MEMORY KEYS contain:
 ### Priority
 
 Memory-driven > keyword detection
+
+## 🔁 Post-Execution Commit (OPTIONAL BUT RECOMMENDED)
+
+After successful flow (security PASS):
+
+→ send to `kang-commit` agent
+
+Input:
+
+- feature summary
+- files modified (from builder)
+- task intent
+
+---
+
+## 🎟️ Ticket Generation
+
+If no ticket provided:
+
+- generate incremental:
+  SDKPC-001, SDKPC-002, ...
+
+---
+
+## 🚫 Rules
+
+- DO NOT commit on FAIL
+- DO NOT commit partial broken code
+- commit only after PASS
