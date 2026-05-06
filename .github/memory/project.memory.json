@@ -1,0 +1,57 @@
+{
+  "ARCH_CALL_ENGINE": {
+    "description": "Single CallEngine as core state machine for all call logic",
+    "rules": [
+      "Only one CallEngine allowed",
+      "Voice and Video must share same engine",
+      "Caller and Callee use same flow",
+      "Engine handles state and transitions"
+    ]
+  },
+  "SDK_STRUCTURE_V1": {
+    "description": "SDK layered architecture",
+    "layers": [
+      "SDK",
+      "Application",
+      "Engine",
+      "Infrastructure"
+    ],
+    "rules": [
+      "UI must not access infrastructure directly",
+      "Application must be thin",
+      "Engine contains all core logic"
+    ]
+  },
+  "LIVEKIT_WRAPPER": {
+    "description": "Media engine abstraction",
+    "rules": [
+      "LiveKit must be wrapped in MediaEngine",
+      "No direct LiveKit usage outside infrastructure"
+    ]
+  },
+  "SIGNALING_MQTT": {
+    "description": "MQTT-based signaling system",
+    "rules": [
+      "All signaling must go through SignalingService",
+      "No direct MQTT usage in UI or Engine",
+      "Events must be validated"
+    ]
+  },
+  "SEC_TOKEN_REQUIRED": {
+    "description": "Token validation required for call actions",
+    "rules": [
+      "Token must be validated before startCall",
+      "Token must be validated before acceptCall",
+      "No token exposure in logs"
+    ]
+  },
+  "SEC_SIGNALING_VALIDATION": {
+    "description": "Signaling must be secure",
+    "rules": [
+      "Validate sender identity",
+      "Validate session ownership",
+      "Reject invalid events",
+      "Prevent replay attacks"
+    ]
+  }
+}
