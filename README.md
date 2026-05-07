@@ -1,15 +1,14 @@
 # SDK Connect
 
-Flutter voice-call SDK with a single `CallEngine` lifecycle, internal connection orchestration, and an SDK-only public API.
+Flutter call SDK with a single `CallEngine` lifecycle, internal media orchestration, and a plug-and-play `SDKConnect` public API.
 
-## Key Points
+## Design Goals
 
-- Single source of truth in `CallEngine`
-- SDK abstraction first (no direct LiveKit usage in app layer)
-- Self-contained `VoiceCallSdk` facade for init, signaling, token resolution, and media connection
-- Unified callbacks for user, connection, error, and token events
-- Voice call lifecycle: `idle -> dialing/ringing -> connected -> ended -> idle`
-- P2P only policy (maximum 2 participants)
+- `CallEngine` remains the single source of truth for call lifecycle and controls.
+- `SDKConnect` is the main app-facing entry point.
+- LiveKit stays fully hidden behind the SDK and media abstraction.
+- Voice works now; video fits the same API shape later.
+- P2P only: maximum 2 participants per room.
 
 ## Installation
 
@@ -26,6 +25,84 @@ Then run:
 
 ```bash
 flutter pub get
+```
+
+## Public API
+
+### Main Entry
+
+```dart
+final sdk = SDKConnect.create(
+  localUserId: currentUserId,
+  signaling: yourSignalingTransport,
+  tokenProvider: yourTokenProvider,
+  signalValidator: yourSignalValidator,
+  callbacks: SDKConnectCallbacks(
+    onEvent: (event) {},
+    onUser: (event) {},
+    onConnection: (event) {},
+    onError: (event) {},
+    onToken: (event) {},
+  ),
+);
+```
+
+### Methods
+
+```dart
+Future<void> initialize({String? localUserId})
+Future<void> startCall({required String peerId, String? callId, SDKConnectCallType callType = SDKConnectCallType.voice})
+Future<void> acceptCall({SDKConnectCallType callType = SDKConnectCallType.voice})
+Future<void> rejectCall({String reason = 'rejected'})
+Future<void> endCall({String reason = 'ended_by_user'})
+Future<void> setMuted(bool muted)
+Future<void> toggleMute()
+Future<void> setSpeakerOn(bool speakerOn)
+Future<void> toggleSpeaker()
+Future<void> dispose()
+```
+
+### Callbacks And Events
+
+```dart
+SDKConnectCallbacks(
+  onEvent: (SDKConnectEvent event) {},
+  onUser: (SDKConnectUserEvent event) {},
+  onConnection: (SDKConnectConnectionEvent event) {},
+  onError: (SDKConnectErrorEvent event) {},
+  onToken: (SDKConnectTokenEvent event) {},
+)
+```
+
+- `SDKConnectUserEvent`: outgoing started, incoming received, accepted, rejected, ended, P2P limit exceeded.
+- `SDKConnectConnectionEvent`: initializing, ready, dialing, ringing, connected, ended, idle.
+- `SDKConnectErrorEvent`: operation, error, stack trace.
+- `SDKConnectTokenEvent`: requested, resolved, failed.
+- `sdk.events`: unified stream of all SDK events.
+
+### Signals And Token Input
+
+```dart
+class SDKConnectSignal {
+  final SDKConnectSignalType type;
+  final String callId;
+  final String fromUserId;
+  final String toUserId;
+  final SDKConnectCallType callType;
+  final String? reason;
+}
+
+class SDKConnectTokenRequest {
+  final String callId;
+  final String peerId;
+  final CallDirection direction;
+  final SDKConnectCallType callType;
+}
+
+class SDKConnectCredentials {
+  final String roomUrl;
+  final String token;
+}
 ```
 
 ## Example Usage
@@ -61,12 +138,13 @@ flutter run \
 const setup = SdkSetup();
 final signaling = setup.createDemoSignaling();
 
-final sdk = VoiceCallSdk.liveKit(
+final sdk = SDKConnect.create(
   localUserId: 'user-a',
   signaling: signaling,
   tokenProvider: setup.createTokenProvider(),
   signalValidator: setup.createSignalValidator(),
-  callbacks: VoiceCallCallbacks(
+  callbacks: SDKConnectCallbacks(
+    onEvent: (event) {},
     onUser: (event) {},
     onConnection: (event) {},
     onError: (event) {},
@@ -100,8 +178,8 @@ await sdk.acceptCall();
 4. In-call controls (mute, speaker, end):
 
 ```dart
-await sdk.toggleMute();
-await sdk.toggleSpeaker();
+await sdk.setMuted(true);
+await sdk.setSpeakerOn(true);
 await sdk.endCall(reason: 'ended_by_user');
 ```
 
@@ -110,7 +188,7 @@ await sdk.endCall(reason: 'ended_by_user');
 - Self-contained SDK init:
 
 ```dart
-final sdk = VoiceCallSdk.liveKit(
+final sdk = SDKConnect.create(
   localUserId: currentUserId,
   signaling: yourSignalingTransport,
   tokenProvider: yourTokenProvider,
@@ -121,7 +199,10 @@ final sdk = VoiceCallSdk.liveKit(
 - Unified callback surface:
 
 ```dart
-VoiceCallCallbacks(
+SDKConnectCallbacks(
+  onEvent: (event) {
+    // unified stream callback for analytics or logging
+  },
   onUser: (event) {
     // incoming, accepted, rejected, ended, p2p-limit
   },
@@ -140,7 +221,7 @@ VoiceCallCallbacks(
 - Trusted signaling validation:
 
 ```dart
-final yourSignalValidator = (VoiceCallSignal signal) async {
+final yourSignalValidator = (SDKConnectSignal signal) async {
   return signal.toUserId == currentUserId &&
       trustedPeerIds.contains(signal.fromUserId);
 };
@@ -169,10 +250,18 @@ try {
 }
 ```
 
+## Voice To Video Mapping
+
+- Keep `SDKConnect` as the only entry point.
+- Keep `startCall`, `acceptCall`, callbacks, and `sdk.events` unchanged.
+- Use `SDKConnectCallType.voice` today and add `SDKConnectCallType.video` later.
+- Keep `SDKConnectSignal`, `SDKConnectTokenRequest`, and `SDKConnectUserEvent` media-type aware now so video support lands without renaming methods or event channels.
+- Add video-specific controls as additive APIs only when needed; existing voice flows remain valid.
+
 ## Notes
 
-- Provide a signaling transport implementation that carries `VoiceCallSignal` messages.
-- Provide a short-lived backend token provider that returns `VoiceCallCredentials`.
+- Provide a signaling transport implementation that carries `SDKConnectSignal` messages.
+- Provide a short-lived backend token provider that returns `SDKConnectCredentials`.
 - Validate signaling sender identity and call ownership before the SDK processes events.
 - Do not bypass SDK abstractions by using LiveKit directly in UI/application code.
 - Group call is intentionally rejected by design (P2P only).

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 import 'package:sdk_connect/sdk_connect.dart';
 
 import 'call_screen.dart';
@@ -30,9 +31,8 @@ class ExampleHomePage extends StatefulWidget {
 class _ExampleHomePageState extends State<ExampleHomePage> {
   final SdkSetup _setup = const SdkSetup();
 
-  VoiceCallSdk? _sdk;
-  VoiceCallController? _controller;
-  InMemoryVoiceCallSignalingTransport? _signaling;
+  SDKConnect? _sdk;
+  InMemorySDKConnectSignalingTransport? _signaling;
   Object? _error;
 
   @override
@@ -44,26 +44,26 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   Future<void> _initializeSdk() async {
     try {
       final signaling = _setup.createDemoSignaling();
-      final sdk = VoiceCallSdk.liveKit(
+      final sdk = SDKConnect.create(
         localUserId: SdkSetup.localUserId,
         signaling: signaling,
         tokenProvider: _setup.createTokenProvider(),
         signalValidator: _setup.createSignalValidator(),
-        callbacks: VoiceCallCallbacks(
+        callbacks: SDKConnectCallbacks(
           onUser: (event) {
             if (!mounted) {
               return;
             }
             switch (event.type) {
-              case VoiceCallUserEventType.incomingReceived:
-              case VoiceCallUserEventType.outgoingStarted:
-              case VoiceCallUserEventType.accepted:
+              case SDKConnectUserEventType.incomingReceived:
+              case SDKConnectUserEventType.outgoingStarted:
+              case SDKConnectUserEventType.accepted:
                 break;
-              case VoiceCallUserEventType.rejected:
+              case SDKConnectUserEventType.rejected:
                 _showMessage('Call rejected: ${event.reason ?? 'rejected'}');
-              case VoiceCallUserEventType.ended:
+              case SDKConnectUserEventType.ended:
                 _showMessage('Call ended: ${event.reason ?? 'ended'}');
-              case VoiceCallUserEventType.p2pLimitExceeded:
+              case SDKConnectUserEventType.p2pLimitExceeded:
                 _showMessage('P2P only: max 2 participants per room.');
             }
           },
@@ -71,21 +71,18 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
             if (!mounted) {
               return;
             }
-            _showMessage('Voice SDK error on ${event.operation}.');
+            _showMessage('SDKConnect error on ${event.operation}.');
           },
         ),
       );
-      final controller = sdk.createController();
 
       if (!mounted) {
-        controller.dispose();
         await sdk.dispose();
         return;
       }
 
       setState(() {
         _sdk = sdk;
-        _controller = controller;
         _signaling = signaling;
       });
     } catch (error) {
@@ -100,7 +97,6 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
 
   @override
   void dispose() {
-    _controller?.dispose();
     final sdk = _sdk;
     if (sdk != null) {
       unawaited(sdk.dispose());
@@ -216,19 +212,20 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
       );
     }
 
-    final controller = _controller;
-    if (controller == null) {
+    final sdk = _sdk;
+    if (sdk == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('SDK Connect Example')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        final phase = controller.callState.phase;
-        if (phase == CallPhase.idle) {
+    return StreamBuilder<CallState>(
+      initialData: sdk.state,
+      stream: sdk.states,
+      builder: (context, snapshot) {
+        final state = snapshot.data ?? sdk.state;
+        if (state.phase == CallPhase.idle) {
           return _IdleScreen(
             onStartOutgoing: _startOutgoingCall,
             onSimulateIncoming: _simulateIncomingCall,
@@ -236,10 +233,12 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
         }
 
         return CallScreen(
-          controller: controller,
+          state: state,
           onAccept: _acceptIncoming,
           onReject: _rejectIncoming,
           onEnd: _endCall,
+          onToggleMute: sdk.toggleMute,
+          onToggleSpeaker: sdk.toggleSpeaker,
         );
       },
     );

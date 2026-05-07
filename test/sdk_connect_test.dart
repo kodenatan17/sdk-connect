@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sdk_connect/sdk_connect.dart';
+import 'package:sdk_connect/di/sdk_connect_scope.dart';
+import 'package:sdk_connect/engine/call_engine.dart';
+import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 
 void main() {
   const validToken = 'header.payload.signature';

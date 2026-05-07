@@ -54,5 +54,16 @@
       "Keep the skip scoped to the flaky test only",
       "Preserve passing coverage for the remaining suite"
     ]
+  },
+  "ARCH_SDKCONNECT_PUBLIC_FACADE_V1": {
+    "description": "SDKConnect is the neutral public facade and documented entry point for sdk_connect",
+    "rules": [
+      "SDKConnect is the primary and documented public entry point",
+      "Barrel exports are narrowed to SDKConnect facade and core models",
+      "Callbacks and events are unified under SDKConnect",
+      "Voice flow uses callType=voice and reserves video for additive expansion",
+      "Example app and README use SDKConnect.create as the integration path",
+      "VoiceCallSdk remains an internal compatibility layer behind SDKConnect"
+    ]
   }
 }

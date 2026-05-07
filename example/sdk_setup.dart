@@ -1,4 +1,5 @@
 import 'package:sdk_connect/sdk_connect.dart';
+import 'package:sdk_connect/di/sdk_connect_scope.dart';
 
 class SdkSetup {
   const SdkSetup();
@@ -15,18 +16,18 @@ class SdkSetup {
     return SdkConnectScope.liveKit();
   }
 
-  InMemoryVoiceCallSignalingTransport createDemoSignaling() {
-    return InMemoryVoiceCallSignalingTransport();
+  InMemorySDKConnectSignalingTransport createDemoSignaling() {
+    return InMemorySDKConnectSignalingTransport();
   }
 
-  VoiceCallTokenProvider createTokenProvider() {
-    return (_) async => VoiceCallCredentials(
+  SDKConnectTokenProvider createTokenProvider() {
+    return (_) async => SDKConnectCredentials(
           roomUrl: requireValidRoomUrl(),
           token: requireValidToken(),
         );
   }
 
-  VoiceCallSignalValidator createSignalValidator() {
+  SDKConnectSignalValidator createSignalValidator() {
     const allowedPeers = <String>{'peer-a', 'peer-b'};
     return (signal) async {
       return signal.toUserId == localUserId &&
@@ -35,14 +36,14 @@ class SdkSetup {
   }
 
   void simulateIncomingForDemo({
-    required VoiceCallSignalingTransport signaling,
+    required SDKConnectSignalingTransport signaling,
     required String localUserId,
     required String callId,
     required String peerId,
   }) {
     signaling.send(
-      VoiceCallSignal(
-        type: VoiceCallSignalType.invite,
+      SDKConnectSignal(
+        type: SDKConnectSignalType.invite,
         callId: callId,
         fromUserId: peerId,
         toUserId: localUserId,

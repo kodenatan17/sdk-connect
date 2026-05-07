@@ -1,5 +1,5 @@
 {
-  "feature": "self-contained VoiceCallSdk facade for sdk_connect voice calls",
+  "feature": "final SDKConnect public API facade",
   "keys": [
     "ARCH_CALL_ENGINE_LIFECYCLE_V1",
     "RULE_SDK_ONLY_USAGE_V1",
@@ -8,7 +8,8 @@
     "ARCH_CALL_ENGINE_SSOT_V2",
     "SEC_SIGNAL_VALIDATION_REQUIRED_V1",
     "SEC_SECURE_RANDOM_CALL_ID_V1",
-    "TEST_WIDGET_SKIP_USER_APPROVED_V1"
+    "TEST_WIDGET_SKIP_USER_APPROVED_V1",
+    "ARCH_SDKCONNECT_PUBLIC_FACADE_V1"
   ],
   "constraints_preserved": [
     "CallEngine lifecycle",
@@ -18,18 +19,16 @@
     "Mandatory signal validation",
     "Secure random call IDs"
   ],
-  "agents": ["solo-orchestrator", "senior-reviewer", "pakpol-security"],
+  "agents": ["solo-orchestrator", "mbg-memory-system", "senior-reviewer", "pakpol-security"],
   "skills": ["flutter-architecture-skill"],
   "outcome": "success",
   "verified_facts": [
-    "VoiceCallSdk.liveKit owns CallEngine and LiveKit media lifecycle",
-    "CallEngine remains the single source of truth",
-    "P2P participant limit remains enforced in LiveKitMediaEngine",
-    "Unified callbacks are exposed for user, connection, error, and token events",
-    "Signal validation is mandatory on VoiceCallSdk",
-    "Secure random call IDs replaced timestamp-based IDs",
-    "Example app and README use VoiceCallSdk as the primary integration path",
-    "One flaky widget test is intentionally skipped at user request while the suite passes 15 tests"
+    "SDKConnect is now the documented public entry point",
+    "Barrel exports were narrowed to SDKConnect facade and core models",
+    "Callbacks and events are unified under SDKConnect",
+    "Voice uses callType=voice with video reserved for additive expansion",
+    "Example and README now use SDKConnect.create",
+    "VoiceCallSdk remains an internal compatibility layer behind the neutral SDKConnect facade"
   ],
-  "round": 3
+  "round": 4
 }

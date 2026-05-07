@@ -426,14 +426,22 @@ class VoiceCallSdk {
     }
   }
 
+  Future<void> setMuted(bool muted) async {
+    _ensureReady('setMuted');
+    await _callEngine.setMuted(muted);
+  }
+
   Future<void> toggleMute() async {
-    _ensureReady('toggleMute');
-    await _callEngine.setMuted(!_callEngine.state.isMuted);
+    await setMuted(!_callEngine.state.isMuted);
+  }
+
+  Future<void> setSpeakerOn(bool speakerOn) async {
+    _ensureReady('setSpeakerOn');
+    await _callEngine.setSpeakerOn(speakerOn);
   }
 
   Future<void> toggleSpeaker() async {
-    _ensureReady('toggleSpeaker');
-    await _callEngine.setSpeakerOn(!_callEngine.state.isSpeakerOn);
+    await setSpeakerOn(!_callEngine.state.isSpeakerOn);
   }
 
   Future<void> dispose() async {
@@ -534,7 +542,7 @@ class VoiceCallSdk {
         VoiceCallSignal(
           type: VoiceCallSignalType.reject,
           callId: signal.callId,
-            fromUserId: _localUserId,
+          fromUserId: _localUserId,
           toUserId: signal.fromUserId,
           reason: 'busy',
         ),
