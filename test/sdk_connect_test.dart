@@ -20,6 +20,9 @@ void main() {
     expect(engine.state.phase, CallPhase.dialing);
     expect(media.connectCount, 1);
 
+    engine.markOutgoingConnected();
+    expect(engine.state.phase, CallPhase.connected);
+
     await engine.endCall();
 
     expect(engine.state.phase, CallPhase.idle);
@@ -42,8 +45,17 @@ void main() {
     await engine.acceptIncoming(roomUrl: 'wss://room.test', token: validToken);
     expect(engine.state.phase, CallPhase.connected);
 
+    await engine.setMuted(true);
+    await engine.setSpeakerOn(true);
+    expect(engine.state.isMuted, isTrue);
+    expect(engine.state.isSpeakerOn, isTrue);
+    expect(media.muteUpdates, 1);
+    expect(media.speakerUpdates, 1);
+
     await engine.endCall(reason: 'hangup');
     expect(engine.state.phase, CallPhase.idle);
+    expect(engine.state.isMuted, isFalse);
+    expect(engine.state.isSpeakerOn, isFalse);
 
     engine.onIncoming(callId: 'call-3', peerId: 'peer-3');
     await engine.rejectIncoming(reason: 'busy');
@@ -150,6 +162,27 @@ void main() {
 
     await engine.dispose();
   });
+
+  test('p2p-only media rejection resets state to idle', () async {
+    final media = _FakeMediaEngine(throwOnConnect: true);
+    final logger = _InMemoryLogger();
+    final engine = CallEngine(mediaEngine: media, logger: logger);
+
+    await expectLater(
+      () => engine.startOutgoing(
+        callId: 'call-10',
+        peerId: 'peer-10',
+        roomUrl: 'wss://room.test',
+        token: validToken,
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(engine.state.phase, CallPhase.idle);
+    expect(logger.events, contains('call.connect_failed'));
+
+    await engine.dispose();
+  });
 }
 
 class _FakeMediaEngine implements MediaEngine {
@@ -163,10 +196,20 @@ class _FakeMediaEngine implements MediaEngine {
 
   int connectCount = 0;
   int disconnectCount = 0;
+  int muteUpdates = 0;
+  int speakerUpdates = 0;
   bool _connected = false;
+  bool _isMuted = false;
+  bool _isSpeakerOn = false;
 
   @override
   bool get isConnected => _connected;
+
+  @override
+  bool get isMuted => _isMuted;
+
+  @override
+  bool get isSpeakerOn => _isSpeakerOn;
 
   @override
   Future<void> connect({required String roomUrl, required String token}) async {
@@ -184,6 +227,20 @@ class _FakeMediaEngine implements MediaEngine {
       throw StateError('disconnect failed');
     }
     _connected = false;
+    _isMuted = false;
+    _isSpeakerOn = false;
+  }
+
+  @override
+  Future<void> setMuted(bool muted) async {
+    muteUpdates += 1;
+    _isMuted = muted;
+  }
+
+  @override
+  Future<void> setSpeakerOn(bool speakerOn) async {
+    speakerUpdates += 1;
+    _isSpeakerOn = speakerOn;
   }
 }
 

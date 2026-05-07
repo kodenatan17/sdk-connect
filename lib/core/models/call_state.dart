@@ -6,12 +6,16 @@ class CallState {
     required this.phase,
     this.session,
     this.reason,
+    required this.isMuted,
+    required this.isSpeakerOn,
     required this.updatedAt,
   });
 
   factory CallState.idle() {
     return CallState(
       phase: CallPhase.idle,
+      isMuted: false,
+      isSpeakerOn: false,
       updatedAt: DateTime.now().toUtc(),
     );
   }
@@ -19,12 +23,16 @@ class CallState {
   final CallPhase phase;
   final CallSession? session;
   final String? reason;
+  final bool isMuted;
+  final bool isSpeakerOn;
   final DateTime updatedAt;
 
   CallState copyWith({
     CallPhase? phase,
     CallSession? session,
     String? reason,
+    bool? isMuted,
+    bool? isSpeakerOn,
     DateTime? updatedAt,
     bool clearReason = false,
   }) {
@@ -32,6 +40,8 @@ class CallState {
       phase: phase ?? this.phase,
       session: session ?? this.session,
       reason: clearReason ? null : (reason ?? this.reason),
+      isMuted: isMuted ?? this.isMuted,
+      isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
       updatedAt: updatedAt ?? DateTime.now().toUtc(),
     );
   }
@@ -41,6 +51,8 @@ class CallState {
       'phase': phase.name,
       'session': session?.toMap(),
       'reason': reason,
+      'isMuted': isMuted,
+      'isSpeakerOn': isSpeakerOn,
       'updatedAt': updatedAt.toIso8601String(),
     };
   }

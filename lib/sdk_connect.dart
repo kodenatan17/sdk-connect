@@ -8,4 +8,6 @@ export 'core/models/call_state.dart';
 export 'core/utils/structured_logger.dart';
 export 'engine/call_engine.dart';
 export 'infrastructure/media/media_engine.dart';
+export 'presentation/voice/voice_call_controller.dart';
+export 'presentation/voice/voice_call_screen.dart';
 export 'sdk/livekit_media_engine_factory.dart';

@@ -154,6 +154,19 @@ class CallEngine {
     }
   }
 
+  void markOutgoingConnected() {
+    _guardPhase(
+      expected: const <CallPhase>{CallPhase.dialing},
+      action: 'mark_outgoing_connected',
+    );
+
+    _transition(
+      to: CallPhase.connected,
+      event: 'call.connected',
+      fields: const <String, Object?>{},
+    );
+  }
+
   Future<void> endCall({String reason = 'ended_by_user'}) async {
     _guardPhase(
       expected: const <CallPhase>{
@@ -190,7 +203,56 @@ class CallEngine {
     }
   }
 
+  Future<void> setMuted(bool muted) async {
+    _guardPhase(
+      expected: const <CallPhase>{CallPhase.connected},
+      action: 'set_muted',
+    );
+
+    await _mediaEngine.setMuted(muted);
+    _state = _state.copyWith(
+      isMuted: muted,
+      updatedAt: _clock(),
+    );
+    _controller.add(_state);
+    _log(
+      'call.mute_updated',
+      <String, Object?>{
+        'callId': _state.session?.callId,
+        'isMuted': muted,
+      },
+    );
+  }
+
+  Future<void> setSpeakerOn(bool speakerOn) async {
+    _guardPhase(
+      expected: const <CallPhase>{CallPhase.connected},
+      action: 'set_speaker_on',
+    );
+
+    await _mediaEngine.setSpeakerOn(speakerOn);
+    _state = _state.copyWith(
+      isSpeakerOn: speakerOn,
+      updatedAt: _clock(),
+    );
+    _controller.add(_state);
+    _log(
+      'call.speaker_updated',
+      <String, Object?>{
+        'callId': _state.session?.callId,
+        'isSpeakerOn': speakerOn,
+      },
+    );
+  }
+
   Future<void> dispose() async {
+    if (_state.phase != CallPhase.idle) {
+      try {
+        await _mediaEngine.disconnect();
+      } catch (_) {
+        // Ignore dispose disconnect errors; engine is being torn down.
+      }
+    }
     await _controller.close();
   }
 
@@ -250,6 +312,8 @@ class CallEngine {
       phase: to,
       session: session,
       reason: reason,
+      isMuted: to == CallPhase.connected ? _state.isMuted : false,
+      isSpeakerOn: to == CallPhase.connected ? _state.isSpeakerOn : false,
       clearReason: clearReason,
       updatedAt: _clock(),
     );
@@ -271,6 +335,8 @@ class CallEngine {
   void _resetToIdle(String event) {
     _state = CallState(
       phase: CallPhase.idle,
+      isMuted: false,
+      isSpeakerOn: false,
       updatedAt: _clock(),
     );
 

@@ -6,5 +6,11 @@ abstract class MediaEngine {
 
   Future<void> disconnect();
 
+  Future<void> setMuted(bool muted);
+
+  Future<void> setSpeakerOn(bool speakerOn);
+
   bool get isConnected;
+  bool get isMuted;
+  bool get isSpeakerOn;
 }
