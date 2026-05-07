@@ -16,15 +16,20 @@ class CallEngine {
   })  : _mediaEngine = mediaEngine,
         _logger = logger ?? ConsoleStructuredLogger(),
         _clock = clock ?? (() => DateTime.now().toUtc()),
-        _state = CallState.idle();
+        _state = CallState.idle() {
+    _mediaEventsSubscription = _mediaEngine.events.listen(_handleMediaEvent);
+  }
 
   final MediaEngine _mediaEngine;
   final StructuredLogger _logger;
   final DateTime Function() _clock;
   final StreamController<CallState> _controller =
       StreamController<CallState>.broadcast();
+  late final StreamSubscription<MediaEngineEvent> _mediaEventsSubscription;
 
   CallState _state;
+  bool _isDisposed = false;
+  bool _isDisconnectingInternally = false;
 
   Stream<CallState> get states => _controller.stream;
   CallState get state => _state;
@@ -35,6 +40,7 @@ class CallEngine {
     required String roomUrl,
     required String token,
   }) async {
+    _ensureActive('start_outgoing');
     _guardStartAllowed('start_outgoing');
     _validateConnectParams(roomUrl: roomUrl, token: token);
 
@@ -55,6 +61,15 @@ class CallEngine {
     try {
       await _mediaEngine.connect(roomUrl: roomUrl, token: token);
       _log('media.connected', <String, Object?>{'callId': callId});
+    } on P2PLimitExceededException catch (_) {
+      _transition(
+        to: CallPhase.ended,
+        reason: 'p2p_limit_exceeded',
+        event: 'call.p2p_limit_exceeded',
+        fields: <String, Object?>{'callId': callId},
+      );
+      _resetToIdle('p2p_limit_cleanup');
+      rethrow;
     } catch (error) {
       _transition(
         to: CallPhase.ended,
@@ -74,6 +89,7 @@ class CallEngine {
     required String callId,
     required String peerId,
   }) {
+    _ensureActive('incoming');
     _guardStartAllowed('incoming');
 
     final session = CallSession(
@@ -95,6 +111,7 @@ class CallEngine {
     required String roomUrl,
     required String token,
   }) async {
+    _ensureActive('accept_incoming');
     _guardPhase(
       expected: const <CallPhase>{CallPhase.ringing},
       action: 'accept_incoming',
@@ -104,6 +121,15 @@ class CallEngine {
     try {
       await _mediaEngine.connect(roomUrl: roomUrl, token: token);
       _log('media.connected', <String, Object?>{'callId': _state.session?.callId});
+    } on P2PLimitExceededException catch (_) {
+      _transition(
+        to: CallPhase.ended,
+        reason: 'p2p_limit_exceeded',
+        event: 'call.p2p_limit_exceeded',
+        fields: const <String, Object?>{},
+      );
+      _resetToIdle('p2p_limit_cleanup');
+      rethrow;
     } catch (error) {
       _transition(
         to: CallPhase.ended,
@@ -123,6 +149,7 @@ class CallEngine {
   }
 
   Future<void> rejectIncoming({String reason = 'rejected'}) async {
+    _ensureActive('reject_incoming');
     _guardPhase(
       expected: const <CallPhase>{CallPhase.ringing},
       action: 'reject_incoming',
@@ -136,7 +163,7 @@ class CallEngine {
     );
 
     try {
-      await _mediaEngine.disconnect();
+      await _disconnectMedia();
       _log(
         'media.disconnected',
         <String, Object?>{'callId': _state.session?.callId},
@@ -155,6 +182,7 @@ class CallEngine {
   }
 
   void markOutgoingConnected() {
+    _ensureActive('mark_outgoing_connected');
     _guardPhase(
       expected: const <CallPhase>{CallPhase.dialing},
       action: 'mark_outgoing_connected',
@@ -168,6 +196,7 @@ class CallEngine {
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) async {
+    _ensureActive('end_call');
     _guardPhase(
       expected: const <CallPhase>{
         CallPhase.dialing,
@@ -185,7 +214,7 @@ class CallEngine {
     );
 
     try {
-      await _mediaEngine.disconnect();
+      await _disconnectMedia();
       _log(
         'media.disconnected',
         <String, Object?>{'callId': _state.session?.callId},
@@ -204,6 +233,7 @@ class CallEngine {
   }
 
   Future<void> setMuted(bool muted) async {
+    _ensureActive('set_muted');
     _guardPhase(
       expected: const <CallPhase>{CallPhase.connected},
       action: 'set_muted',
@@ -225,6 +255,7 @@ class CallEngine {
   }
 
   Future<void> setSpeakerOn(bool speakerOn) async {
+    _ensureActive('set_speaker_on');
     _guardPhase(
       expected: const <CallPhase>{CallPhase.connected},
       action: 'set_speaker_on',
@@ -246,14 +277,30 @@ class CallEngine {
   }
 
   Future<void> dispose() async {
-    if (_state.phase != CallPhase.idle) {
-      try {
-        await _mediaEngine.disconnect();
-      } catch (_) {
-        // Ignore dispose disconnect errors; engine is being torn down.
-      }
+    if (_isDisposed) {
+      return;
     }
-    await _controller.close();
+
+    _isDisposed = true;
+
+    try {
+      if (_state.phase != CallPhase.idle) {
+        await _disconnectMedia();
+        _resetToIdle('dispose_cleanup');
+      }
+    } catch (_) {
+      _resetToIdle('dispose_cleanup');
+    } finally {
+      await _mediaEventsSubscription.cancel();
+      await _mediaEngine.dispose();
+      await _controller.close();
+    }
+  }
+
+  void _ensureActive(String action) {
+    if (_isDisposed) {
+      throw CallLifecycleException('CallEngine is disposed. Cannot $action.');
+    }
   }
 
   void _guardStartAllowed(String action) {
@@ -296,6 +343,54 @@ class CallEngine {
     if (token.trim().isEmpty || !hasJwtShape) {
       throw CallLifecycleException('Invalid token.');
     }
+  }
+
+  Future<void> _disconnectMedia() async {
+    _isDisconnectingInternally = true;
+    try {
+      await _mediaEngine.disconnect();
+    } finally {
+      _isDisconnectingInternally = false;
+    }
+  }
+
+  void _handleMediaEvent(MediaEngineEvent event) {
+    if (_isDisposed || _isDisconnectingInternally) {
+      return;
+    }
+
+    switch (event.type) {
+      case MediaEngineEventType.p2pLimitExceeded:
+        _handleUnexpectedTermination(
+          reason: event.reason ?? 'p2p_limit_exceeded',
+          event: 'call.p2p_limit_exceeded',
+          cleanupEvent: 'p2p_limit_cleanup',
+        );
+      case MediaEngineEventType.disconnected:
+        _handleUnexpectedTermination(
+          reason: event.reason ?? 'media_disconnected',
+          event: 'call.media_disconnected',
+          cleanupEvent: 'media_disconnect_cleanup',
+        );
+    }
+  }
+
+  void _handleUnexpectedTermination({
+    required String reason,
+    required String event,
+    required String cleanupEvent,
+  }) {
+    if (_state.phase == CallPhase.idle || _state.phase == CallPhase.ended) {
+      return;
+    }
+
+    _transition(
+      to: CallPhase.ended,
+      reason: reason,
+      event: event,
+      fields: <String, Object?>{'reason': reason},
+    );
+    _resetToIdle(cleanupEvent);
   }
 
   void _transition({

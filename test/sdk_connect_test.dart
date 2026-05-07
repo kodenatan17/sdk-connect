@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sdk_connect/sdk_connect.dart';
@@ -164,24 +166,96 @@ void main() {
   });
 
   test('p2p-only media rejection resets state to idle', () async {
-    final media = _FakeMediaEngine(throwOnConnect: true);
+    final media = _FakeMediaEngine();
     final logger = _InMemoryLogger();
     final engine = CallEngine(mediaEngine: media, logger: logger);
 
-    await expectLater(
-      () => engine.startOutgoing(
-        callId: 'call-10',
-        peerId: 'peer-10',
-        roomUrl: 'wss://room.test',
-        token: validToken,
-      ),
-      throwsA(isA<StateError>()),
+    await engine.startOutgoing(
+      callId: 'call-10',
+      peerId: 'peer-10',
+      roomUrl: 'wss://room.test',
+      token: validToken,
     );
 
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.p2pLimitExceeded,
+        reason: 'p2p_limit_exceeded',
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
     expect(engine.state.phase, CallPhase.idle);
-    expect(logger.events, contains('call.connect_failed'));
+    expect(logger.events, contains('call.p2p_limit_exceeded'));
+    expect(logger.events, contains('p2p_limit_cleanup'));
 
     await engine.dispose();
+  });
+
+  test('unexpected media disconnect resets active call to idle', () async {
+    final media = _FakeMediaEngine();
+    final logger = _InMemoryLogger();
+    final engine = CallEngine(mediaEngine: media, logger: logger);
+
+    await engine.startOutgoing(
+      callId: 'call-11',
+      peerId: 'peer-11',
+      roomUrl: 'wss://room.test',
+      token: validToken,
+    );
+
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.disconnected,
+        reason: 'network_lost',
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(engine.state.phase, CallPhase.idle);
+    expect(logger.events, contains('call.media_disconnected'));
+    expect(logger.events, contains('media_disconnect_cleanup'));
+
+    await engine.dispose();
+  });
+
+  test('dispose is idempotent and blocks further transitions', () async {
+    final media = _FakeMediaEngine();
+    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
+
+    await engine.dispose();
+    await engine.dispose();
+
+    expect(
+      () => engine.onIncoming(callId: 'call-12', peerId: 'peer-12'),
+      throwsA(isA<CallLifecycleException>()),
+    );
+
+    expect(
+      () => engine.markOutgoingConnected(),
+      throwsA(isA<CallLifecycleException>()),
+    );
+
+    expect(media.disconnectCount, 0);
+  });
+
+  test('sdk scope composes a shared call engine for controller init', () async {
+    final media = _FakeMediaEngine();
+    final scope = SdkConnectScope.liveKit(mediaEngine: media);
+    final controller = scope.createVoiceCallController();
+
+    await controller.startOutgoing(
+      callId: 'call-13',
+      peerId: 'peer-13',
+      roomUrl: 'wss://room.test',
+      token: validToken,
+    );
+
+    expect(scope.callEngine.state.phase, CallPhase.dialing);
+    expect(media.connectCount, 1);
+
+    controller.dispose();
+    await scope.dispose();
   });
 }
 
@@ -201,6 +275,11 @@ class _FakeMediaEngine implements MediaEngine {
   bool _connected = false;
   bool _isMuted = false;
   bool _isSpeakerOn = false;
+  final StreamController<MediaEngineEvent> _eventsController =
+      StreamController<MediaEngineEvent>.broadcast();
+
+  @override
+  Stream<MediaEngineEvent> get events => _eventsController.stream;
 
   @override
   bool get isConnected => _connected;
@@ -241,6 +320,18 @@ class _FakeMediaEngine implements MediaEngine {
   Future<void> setSpeakerOn(bool speakerOn) async {
     speakerUpdates += 1;
     _isSpeakerOn = speakerOn;
+  }
+
+  @override
+  Future<void> dispose() async {
+    _connected = false;
+    _isMuted = false;
+    _isSpeakerOn = false;
+    await _eventsController.close();
+  }
+
+  void emitEvent(MediaEngineEvent event) {
+    _eventsController.add(event);
   }
 }
 

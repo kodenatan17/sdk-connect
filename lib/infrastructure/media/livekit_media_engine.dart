@@ -7,9 +7,14 @@ class LiveKitMediaEngine implements MediaEngine {
   LiveKitMediaEngine({lk.Room? room}) : _room = room ?? lk.Room();
 
   final lk.Room _room;
+  final StreamController<MediaEngineEvent> _eventsController =
+      StreamController<MediaEngineEvent>.broadcast();
   lk.EventsListener<lk.RoomEvent>? _roomListener;
   bool _isMuted = false;
   bool _isSpeakerOn = false;
+
+  @override
+  Stream<MediaEngineEvent> get events => _eventsController.stream;
 
   @override
   bool get isConnected => _room.connectionState == lk.ConnectionState.connected;
@@ -34,6 +39,14 @@ class LiveKitMediaEngine implements MediaEngine {
         if (_room.remoteParticipants.length > 1) {
           unawaited(_disconnectOnP2PViolation());
         }
+      })
+      ..on<lk.RoomDisconnectedEvent>((event) {
+        _emitEvent(
+          MediaEngineEvent(
+            type: MediaEngineEventType.disconnected,
+            reason: event.reason.toString(),
+          ),
+        );
       });
 
     await _room.connect(
@@ -43,19 +56,19 @@ class LiveKitMediaEngine implements MediaEngine {
 
     // Enforce P2P-only at connect boundary.
     if (_room.remoteParticipants.length > 1) {
-      await _disconnectOnP2PViolation();
-      throw StateError('P2P only: group call is not supported.');
+      await _disconnectForPolicyViolation(emitEvent: false);
+      throw const P2PLimitExceededException();
     }
   }
 
   @override
   Future<void> disconnect() async {
     if (!isConnected) {
+      await _disposeRoomListener();
       return;
     }
 
-    await _roomListener?.dispose();
-    _roomListener = null;
+    await _disposeRoomListener();
     await _room.disconnect();
     _isMuted = false;
     _isSpeakerOn = false;
@@ -81,11 +94,49 @@ class LiveKitMediaEngine implements MediaEngine {
     _isSpeakerOn = speakerOn;
   }
 
-  Future<void> _disconnectOnP2PViolation() async {
-    await _roomListener?.dispose();
-    _roomListener = null;
+  @override
+  Future<void> dispose() async {
+    await _disposeRoomListener();
     if (isConnected) {
       await _room.disconnect();
     }
+    _isMuted = false;
+    _isSpeakerOn = false;
+    if (!_eventsController.isClosed) {
+      await _eventsController.close();
+    }
+  }
+
+  Future<void> _disconnectOnP2PViolation() async {
+    await _disconnectForPolicyViolation(emitEvent: true);
+  }
+
+  Future<void> _disconnectForPolicyViolation({required bool emitEvent}) async {
+    if (emitEvent) {
+      _emitEvent(
+        const MediaEngineEvent(
+          type: MediaEngineEventType.p2pLimitExceeded,
+          reason: 'p2p_limit_exceeded',
+        ),
+      );
+    }
+    await _disposeRoomListener();
+    if (isConnected) {
+      await _room.disconnect();
+    }
+    _isMuted = false;
+    _isSpeakerOn = false;
+  }
+
+  Future<void> _disposeRoomListener() async {
+    await _roomListener?.dispose();
+    _roomListener = null;
+  }
+
+  void _emitEvent(MediaEngineEvent event) {
+    if (_eventsController.isClosed) {
+      return;
+    }
+    _eventsController.add(event);
   }
 }

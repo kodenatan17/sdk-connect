@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sdk_connect/sdk_connect.dart';
@@ -140,6 +142,11 @@ class _FakeMediaEngine implements MediaEngine {
   bool _connected = false;
   bool _isMuted = false;
   bool _isSpeakerOn = false;
+  final StreamController<MediaEngineEvent> _eventsController =
+      StreamController<MediaEngineEvent>.broadcast();
+
+  @override
+  Stream<MediaEngineEvent> get events => _eventsController.stream;
 
   @override
   bool get isConnected => _connected;
@@ -172,6 +179,14 @@ class _FakeMediaEngine implements MediaEngine {
   @override
   Future<void> setSpeakerOn(bool speakerOn) async {
     _isSpeakerOn = speakerOn;
+  }
+
+  @override
+  Future<void> dispose() async {
+    _connected = false;
+    _isMuted = false;
+    _isSpeakerOn = false;
+    await _eventsController.close();
   }
 }
 
