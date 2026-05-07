@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:sdk_connect/core/enums/call_direction.dart';
 import 'package:sdk_connect/core/enums/call_phase.dart';
+import 'package:sdk_connect/core/enums/call_type.dart';
 import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
 import 'package:sdk_connect/core/models/call_session.dart';
 import 'package:sdk_connect/core/models/call_state.dart';
@@ -40,6 +41,7 @@ class CallEngine {
     required String peerId,
     required String roomUrl,
     required String token,
+    CallType callType = CallType.voice,
   }) async {
     _ensureActive('start_outgoing');
     _guardStartAllowed('start_outgoing');
@@ -49,6 +51,7 @@ class CallEngine {
       callId: callId,
       peerId: peerId,
       direction: CallDirection.outgoing,
+      callType: callType,
       createdAt: _clock(),
     );
 
@@ -89,6 +92,7 @@ class CallEngine {
   void onIncoming({
     required String callId,
     required String peerId,
+    CallType callType = CallType.voice,
   }) {
     _ensureActive('incoming');
     _guardStartAllowed('incoming');
@@ -97,6 +101,7 @@ class CallEngine {
       callId: callId,
       peerId: peerId,
       direction: CallDirection.incoming,
+      callType: callType,
       createdAt: _clock(),
     );
 

@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:sdk_connect/core/enums/call_direction.dart';
 import 'package:sdk_connect/core/enums/call_phase.dart';
+import 'package:sdk_connect/core/enums/call_type.dart';
 import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
 import 'package:sdk_connect/core/models/call_state.dart';
 import 'package:sdk_connect/core/utils/structured_logger.dart';
@@ -51,6 +52,7 @@ class VoiceCallSignal {
     required this.callId,
     required this.fromUserId,
     required this.toUserId,
+    this.callType = CallType.voice,
     this.reason,
   });
 
@@ -58,6 +60,7 @@ class VoiceCallSignal {
   final String callId;
   final String fromUserId;
   final String toUserId;
+  final CallType callType;
   final String? reason;
 }
 
@@ -279,6 +282,7 @@ class VoiceCallSdk {
   Future<void> startCall({
     required String peerId,
     String? callId,
+    CallType callType = CallType.voice,
   }) async {
     _ensureReady('startCall');
 
@@ -297,6 +301,7 @@ class VoiceCallSdk {
         peerId: peerId,
         roomUrl: credentials.roomUrl,
         token: credentials.token,
+        callType: callType,
       );
 
       await _signaling.send(
@@ -305,6 +310,7 @@ class VoiceCallSdk {
           callId: resolvedCallId,
           fromUserId: _localUserId,
           toUserId: peerId,
+          callType: callType,
         ),
       );
 
@@ -349,6 +355,7 @@ class VoiceCallSdk {
           callId: session.callId,
           fromUserId: _localUserId,
           toUserId: session.peerId,
+          callType: session.callType,
         ),
       );
 
@@ -380,6 +387,7 @@ class VoiceCallSdk {
           callId: session.callId,
           fromUserId: _localUserId,
           toUserId: session.peerId,
+          callType: session.callType,
           reason: reason,
         ),
       );
@@ -415,6 +423,7 @@ class VoiceCallSdk {
           callId: session.callId,
           fromUserId: _localUserId,
           toUserId: session.peerId,
+          callType: session.callType,
           reason: reason,
         ),
       );
@@ -442,15 +451,6 @@ class VoiceCallSdk {
 
   Future<void> toggleSpeaker() async {
     await setSpeakerOn(!_callEngine.state.isSpeakerOn);
-  }
-
-  Future<void> setVideoEnabled(bool enabled) async {
-    _ensureReady('setVideoEnabled');
-    await _callEngine.setVideoEnabled(enabled);
-  }
-
-  Future<void> toggleCamera() async {
-    await setVideoEnabled(!_callEngine.state.isVideoEnabled);
   }
 
   Future<void> dispose() async {
@@ -569,13 +569,18 @@ class VoiceCallSdk {
           callId: signal.callId,
           fromUserId: _localUserId,
           toUserId: signal.fromUserId,
+          callType: signal.callType,
           reason: 'busy',
         ),
       );
       return;
     }
 
-    _callEngine.onIncoming(callId: signal.callId, peerId: signal.fromUserId);
+    _callEngine.onIncoming(
+      callId: signal.callId,
+      peerId: signal.fromUserId,
+      callType: signal.callType,
+    );
     _callbacks.onUser?.call(
       VoiceCallUserEvent(
         type: VoiceCallUserEventType.incomingReceived,
@@ -728,7 +733,7 @@ class VoiceCallSdk {
   }
 
   String _signalKey(VoiceCallSignal signal) {
-    return '${signal.type.name}|${signal.callId}|${signal.fromUserId}|${signal.toUserId}|${signal.reason ?? ''}';
+    return '${signal.type.name}|${signal.callId}|${signal.fromUserId}|${signal.toUserId}|${signal.callType.name}|${signal.reason ?? ''}';
   }
 }
 

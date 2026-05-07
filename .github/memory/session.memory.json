@@ -1,5 +1,5 @@
 {
-  "feature": "video support + token/signaling hardening",
+  "feature": "SDKConnect voice-video facade split with CallEngine SSOT callType propagation and accept mismatch guards",
   "keys": [
     "ARCH_CALL_ENGINE_LIFECYCLE_V1",
     "RULE_SDK_ONLY_USAGE_V1",
@@ -11,10 +11,14 @@
     "TEST_WIDGET_SKIP_USER_APPROVED_V1",
     "ARCH_SDKCONNECT_PUBLIC_FACADE_V1",
     "ARCH_VIDEO_CALL_ADDITIVE_V1",
+    "ARCH_SDKCONNECT_VOICE_VIDEO_FACADE_SPLIT_V1",
+    "RULE_CALLTYPE_PROPAGATION_REQUIRED_V1",
     "MEDIA_VIDEO_CAMERA_V1",
     "SEC_TOKEN_EXPIRY_CHECK_V1",
     "SEC_SIGNAL_REJECT_EMITS_ERROR_V1",
-    "TEST_COVERAGE_V2"
+    "SEC_ACCEPT_CALLTYPE_MISMATCH_GUARD_V1",
+    "TEST_COVERAGE_V2",
+    "TEST_CALLTYPE_GUARDS_V1"
   ],
   "constraints_preserved": [
     "CallEngine lifecycle",
@@ -24,22 +28,18 @@
     "Mandatory signal validation",
     "Secure random call IDs",
     "JWT expiry enforced before media connect",
-    "Invalid signals emit error events (no silent drops)"
+    "Invalid signals emit error events (no silent drops)",
+    "Facade split preserves a single CallEngine authority",
+    "Accept flows fail fast on callType mismatches"
   ],
-  "agents": ["joko-builder"],
-  "skills": ["flutter-architecture-skill", "sdk-abstraction-skill", "realtime-security-skill"],
+  "agents": ["joko-builder", "senior-reviewer", "pakpol-security"],
+  "skills": ["flutter-architecture-skill"],
   "outcome": "success",
   "verified_facts": [
-    "Video added additively via SDKConnectCallType.video with no breaking changes to voice path",
-    "startCall/acceptCall auto-enable camera when callType=video",
-    "VoiceCallSdk.setVideoEnabled and toggleCamera wired through to CallEngine",
-    "MediaEngine now exposes setCameraOn(bool) and isVideoEnabled",
-    "LiveKitMediaEngine implements setCameraOn via localParticipant.setCameraEnabled",
-    "CallState includes isVideoEnabled field",
-    "CallEngine._validateConnectParams decodes JWT payload and checks exp claim",
-    "Expired tokens throw CallLifecycleException before media connect",
-    "VoiceCallSdk._handleSignal emits VoiceCallErrorEvent on invalid envelope and on signalValidator rejection",
-    "22 tests passing (1 skipped); new tests cover video, JWT expiry, and signal rejection paths"
+    "SDKConnect now separates public voice/video facade concerns while keeping CallEngine as the single source of truth",
+    "Facade entrypoints propagate explicit callType into CallEngine for lifecycle and media decisions",
+    "acceptCall guards reject mismatched callType before connection side effects",
+    "Previously preserved video, JWT expiry, and signal rejection protections remain intact"
   ],
-  "round": 5
+  "round": 6
 }

@@ -74,6 +74,22 @@
       "Voice callType remains unaffected by video additions"
     ]
   },
+  "ARCH_SDKCONNECT_VOICE_VIDEO_FACADE_SPLIT_V1": {
+    "description": "SDKConnect exposes a neutral public facade while voice/video concerns remain split behind facade layers with CallEngine as SSOT",
+    "rules": [
+      "SDKConnect owns the public voice/video entry surface",
+      "Facade split must not duplicate lifecycle authority already owned by CallEngine",
+      "Voice and video wrappers propagate callType into CallEngine rather than inferring it later"
+    ]
+  },
+  "RULE_CALLTYPE_PROPAGATION_REQUIRED_V1": {
+    "description": "Call type must propagate from facade entrypoints into CallEngine lifecycle decisions",
+    "rules": [
+      "startCall and acceptCall must carry explicit callType through the facade boundary",
+      "CallEngine state and downstream media decisions derive from propagated callType",
+      "Defaulting or re-deriving callType after facade entry is not permitted when the caller already chose it"
+    ]
+  },
   "MEDIA_VIDEO_CAMERA_V1": {
     "description": "MediaEngine extended with camera control; CallState tracks video enablement",
     "rules": [
@@ -98,11 +114,26 @@
       "Silent signal drops are not permitted"
     ]
   },
+  "SEC_ACCEPT_CALLTYPE_MISMATCH_GUARD_V1": {
+    "description": "Accept flows must reject callType mismatches before joining media or mutating active call state",
+    "rules": [
+      "acceptCall validates that requested callType matches the pending/incoming session type",
+      "Mismatched accept attempts fail fast with a guard error",
+      "Media join and state transition must not proceed after a callType mismatch"
+    ]
+  },
   "TEST_COVERAGE_V2": {
     "description": "22 tests passing (1 skipped) as of 2026-05-07",
     "rules": [
       "New tests cover: video start enables camera, setVideoEnabled toggle, expired JWT rejection, malformed JWT, signalValidator rejection emits error, invalid envelope emits error",
       "Widget test skip remains intentional per TEST_WIDGET_SKIP_USER_APPROVED_V1"
+    ]
+  },
+  "TEST_CALLTYPE_GUARDS_V1": {
+    "description": "Facade split and accept mismatch guards are covered by targeted tests",
+    "rules": [
+      "Tests verify callType propagates through SDKConnect facade into CallEngine",
+      "Tests verify acceptCall rejects mismatched callType before connection side effects"
     ]
   }
 }

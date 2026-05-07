@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:sdk_connect/core/enums/call_type.dart';
 import 'package:sdk_connect/core/enums/call_direction.dart';
 import 'package:sdk_connect/core/models/call_state.dart';
 import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/sdk/livekit_media_engine_factory.dart';
+import 'package:sdk_connect/sdk/video_call_sdk.dart';
 import 'package:sdk_connect/sdk/voice_call_sdk.dart';
 
 enum SDKConnectCallType {
@@ -39,11 +41,15 @@ class SDKConnectTokenRequest {
   final CallDirection direction;
   final SDKConnectCallType callType;
 
-  factory SDKConnectTokenRequest._fromVoice(VoiceCallTokenRequest request) {
+  factory SDKConnectTokenRequest._fromVoice(
+    VoiceCallTokenRequest request, {
+    required SDKConnectCallType callType,
+  }) {
     return SDKConnectTokenRequest(
       callId: request.callId,
       peerId: request.peerId,
       direction: request.direction,
+      callType: callType,
     );
   }
 }
@@ -80,12 +86,15 @@ class SDKConnectSignal {
   final SDKConnectCallType callType;
   final String? reason;
 
-  factory SDKConnectSignal._fromVoice(VoiceCallSignal signal) {
+  factory SDKConnectSignal._fromVoice(
+    VoiceCallSignal signal,
+  ) {
     return SDKConnectSignal(
       type: SDKConnectSignalType.values.byName(signal.type.name),
       callId: signal.callId,
       fromUserId: signal.fromUserId,
       toUserId: signal.toUserId,
+      callType: signal.callType.toPublic(),
       reason: signal.reason,
     );
   }
@@ -96,6 +105,7 @@ class SDKConnectSignal {
       callId: callId,
       fromUserId: fromUserId,
       toUserId: toUserId,
+      callType: callType.toCore(),
       reason: reason,
     );
   }
@@ -173,11 +183,15 @@ class SDKConnectUserEvent extends SDKConnectEvent {
   final SDKConnectCallType callType;
   final String? reason;
 
-  factory SDKConnectUserEvent._fromVoice(VoiceCallUserEvent event) {
+  factory SDKConnectUserEvent._fromVoice(
+    VoiceCallUserEvent event, {
+    required SDKConnectCallType callType,
+  }) {
     return SDKConnectUserEvent(
       type: SDKConnectUserEventType.values.byName(event.type.name),
       callId: event.callId,
       peerId: event.peerId,
+      callType: callType,
       reason: event.reason,
     );
   }
@@ -227,10 +241,16 @@ class SDKConnectTokenEvent extends SDKConnectEvent {
   final SDKConnectTokenRequest request;
   final Object? error;
 
-  factory SDKConnectTokenEvent._fromVoice(VoiceCallTokenEvent event) {
+  factory SDKConnectTokenEvent._fromVoice(
+    VoiceCallTokenEvent event, {
+    required SDKConnectCallType callType,
+  }) {
     return SDKConnectTokenEvent(
       type: SDKConnectTokenEventType.values.byName(event.type.name),
-      request: SDKConnectTokenRequest._fromVoice(event.request),
+      request: SDKConnectTokenRequest._fromVoice(
+        event.request,
+        callType: callType,
+      ),
       error: event.error,
     );
   }
@@ -288,10 +308,16 @@ class SDKConnect {
     _voiceSdk = VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
-      signaling: _SDKConnectSignalingTransportAdapter(signaling),
+      signaling: _SDKConnectSignalingTransportAdapter(
+        signaling,
+        currentCallType: _resolveOutboundCallType,
+      ),
       tokenProvider: (request) async {
         final credentials = await tokenProvider(
-          SDKConnectTokenRequest._fromVoice(request),
+          SDKConnectTokenRequest._fromVoice(
+            request,
+            callType: _resolveRequestCallType(request),
+          ),
         );
         return credentials._toVoiceCredentials();
       },
@@ -303,6 +329,14 @@ class SDKConnect {
         onConnection: _handleVoiceConnectionEvent,
         onError: _handleVoiceErrorEvent,
         onToken: _handleVoiceTokenEvent,
+      ),
+    );
+    voice = SDKConnectVoiceApi._(this);
+    video = SDKConnectVideoApi._(
+      this,
+      VideoCallSdk(
+        voiceSdk: _voiceSdk,
+        callEngine: _callEngine,
       ),
     );
   }
@@ -350,10 +384,16 @@ class SDKConnect {
     _voiceSdk = VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
-      signaling: _SDKConnectSignalingTransportAdapter(signaling),
+      signaling: _SDKConnectSignalingTransportAdapter(
+        signaling,
+        currentCallType: _resolveOutboundCallType,
+      ),
       tokenProvider: (request) async {
         final credentials = await tokenProvider(
-          SDKConnectTokenRequest._fromVoice(request),
+          SDKConnectTokenRequest._fromVoice(
+            request,
+            callType: _resolveRequestCallType(request),
+          ),
         );
         return credentials._toVoiceCredentials();
       },
@@ -367,6 +407,14 @@ class SDKConnect {
         onToken: _handleVoiceTokenEvent,
       ),
     );
+    voice = SDKConnectVoiceApi._(this);
+    video = SDKConnectVideoApi._(
+      this,
+      VideoCallSdk(
+        voiceSdk: _voiceSdk,
+        callEngine: _callEngine,
+      ),
+    );
   }
 
   final CallEngine _callEngine;
@@ -378,6 +426,10 @@ class SDKConnect {
       StreamController<SDKConnectEvent>.broadcast();
 
   late final VoiceCallSdk _voiceSdk;
+  late final SDKConnectVoiceApi voice;
+  late final SDKConnectVideoApi video;
+
+  SDKConnectCallType _nextOutgoingCallType = SDKConnectCallType.voice;
 
   bool _isDisposed = false;
 
@@ -393,22 +445,14 @@ class SDKConnect {
     required String peerId,
     String? callId,
     SDKConnectCallType callType = SDKConnectCallType.voice,
-  }) async {
-    _ensureVideoOrVoice(callType);
-    await _voiceSdk.startCall(peerId: peerId, callId: callId);
-    if (callType == SDKConnectCallType.video) {
-      await _voiceSdk.setVideoEnabled(true);
-    }
+  }) {
+    return _startCallInternal(peerId: peerId, callId: callId, callType: callType);
   }
 
   Future<void> acceptCall({
-    SDKConnectCallType callType = SDKConnectCallType.voice,
-  }) async {
-    _ensureVideoOrVoice(callType);
-    await _voiceSdk.acceptCall();
-    if (callType == SDKConnectCallType.video) {
-      await _voiceSdk.setVideoEnabled(true);
-    }
+    SDKConnectCallType? callType,
+  }) {
+    return _acceptCallInternal(callType: callType);
   }
 
   Future<void> rejectCall({String reason = 'rejected'}) {
@@ -436,11 +480,11 @@ class SDKConnect {
   }
 
   Future<void> setVideoEnabled(bool enabled) {
-    return _voiceSdk.setVideoEnabled(enabled);
+    return _callEngine.setVideoEnabled(enabled);
   }
 
   Future<void> toggleCamera() {
-    return _voiceSdk.toggleCamera();
+    return _callEngine.setVideoEnabled(!_callEngine.state.isVideoEnabled);
   }
 
   Future<void> dispose() async {
@@ -450,6 +494,7 @@ class SDKConnect {
 
     _isDisposed = true;
 
+    await video._dispose();
     await _voiceSdk.dispose();
     if (_ownsSignaling) {
       await _signaling.dispose();
@@ -461,7 +506,10 @@ class SDKConnect {
   }
 
   void _handleVoiceUserEvent(VoiceCallUserEvent event) {
-    final mappedEvent = SDKConnectUserEvent._fromVoice(event);
+    final mappedEvent = SDKConnectUserEvent._fromVoice(
+      event,
+      callType: _resolveCurrentCallType(),
+    );
     _callbacks.onUser?.call(mappedEvent);
     _emitEvent(mappedEvent);
   }
@@ -479,9 +527,78 @@ class SDKConnect {
   }
 
   void _handleVoiceTokenEvent(VoiceCallTokenEvent event) {
-    final mappedEvent = SDKConnectTokenEvent._fromVoice(event);
+    final mappedEvent = SDKConnectTokenEvent._fromVoice(
+      event,
+      callType: _resolveRequestCallType(event.request),
+    );
     _callbacks.onToken?.call(mappedEvent);
     _emitEvent(mappedEvent);
+  }
+
+  Future<void> _startCallInternal({
+    required String peerId,
+    String? callId,
+    required SDKConnectCallType callType,
+  }) async {
+    _ensureVideoOrVoice(callType);
+    _nextOutgoingCallType = callType;
+    try {
+      await _voiceSdk.startCall(
+        peerId: peerId,
+        callId: callId,
+        callType: callType.toCore(),
+      );
+      if (callType == SDKConnectCallType.video) {
+        await _callEngine.setVideoEnabled(true);
+      }
+    } finally {
+      _nextOutgoingCallType = _resolveCurrentCallType();
+    }
+  }
+
+  Future<void> _acceptCallInternal({
+    SDKConnectCallType? callType,
+  }) async {
+    final sessionType = _callEngine.state.session?.callType.toPublic();
+    if (callType != null && sessionType != null && callType != sessionType) {
+      throw StateError(
+        'Incoming call type mismatch. Expected ${sessionType.name}, got ${callType.name}.',
+      );
+    }
+    final resolvedType = sessionType ?? callType ?? SDKConnectCallType.voice;
+    _ensureVideoOrVoice(resolvedType);
+    try {
+      await _voiceSdk.acceptCall();
+      if (resolvedType == SDKConnectCallType.video) {
+        await _callEngine.setVideoEnabled(true);
+      }
+    } finally {
+      _nextOutgoingCallType = _resolveCurrentCallType();
+    }
+  }
+
+  SDKConnectCallType _resolveCurrentCallType() {
+    final sessionType = _callEngine.state.session?.callType;
+    if (sessionType == null) {
+      return SDKConnectCallType.voice;
+    }
+    return sessionType.toPublic();
+  }
+
+  SDKConnectCallType _resolveRequestCallType(VoiceCallTokenRequest request) {
+    final session = _callEngine.state.session;
+    if (session != null && session.callId == request.callId) {
+      return session.callType.toPublic();
+    }
+    return _nextOutgoingCallType;
+  }
+
+  SDKConnectCallType _resolveOutboundCallType() {
+    final session = _callEngine.state.session;
+    if (session != null) {
+      return session.callType.toPublic();
+    }
+    return _nextOutgoingCallType;
   }
 
   void _emitEvent(SDKConnectEvent event) {
@@ -499,23 +616,187 @@ class SDKConnect {
   }
 }
 
+class SDKConnectVoiceApi {
+  SDKConnectVoiceApi._(this._sdk);
+
+  final SDKConnect _sdk;
+
+  CallState get state => _sdk.state;
+  Stream<CallState> get states => _sdk.states;
+
+  Future<void> initialize({String? localUserId}) {
+    return _sdk.initialize(localUserId: localUserId);
+  }
+
+  Future<void> startCall({
+    required String peerId,
+    String? callId,
+  }) {
+    return _sdk._startCallInternal(
+      peerId: peerId,
+      callId: callId,
+      callType: SDKConnectCallType.voice,
+    );
+  }
+
+  Future<void> acceptCall() {
+    return _sdk._acceptCallInternal(callType: SDKConnectCallType.voice);
+  }
+
+  Future<void> rejectCall({String reason = 'rejected'}) {
+    return _sdk.rejectCall(reason: reason);
+  }
+
+  Future<void> endCall({String reason = 'ended_by_user'}) {
+    return _sdk.endCall(reason: reason);
+  }
+
+  Future<void> setMuted(bool muted) {
+    return _sdk.setMuted(muted);
+  }
+
+  Future<void> toggleMute() {
+    return _sdk.toggleMute();
+  }
+
+  Future<void> setSpeakerOn(bool speakerOn) {
+    return _sdk.setSpeakerOn(speakerOn);
+  }
+
+  Future<void> toggleSpeaker() {
+    return _sdk.toggleSpeaker();
+  }
+}
+
+class SDKConnectVideoApi {
+  SDKConnectVideoApi._(this._sdk, this._videoSdk);
+
+  final SDKConnect _sdk;
+  final VideoCallSdk _videoSdk;
+
+  CallState get state => _sdk.state;
+  Stream<CallState> get states => _sdk.states;
+
+  Future<void> initialize({String? localUserId}) {
+    return _sdk.initialize(localUserId: localUserId);
+  }
+
+  Future<void> startCall({
+    required String peerId,
+    String? callId,
+  }) {
+    return _sdk._startCallInternal(
+      peerId: peerId,
+      callId: callId,
+      callType: SDKConnectCallType.video,
+    );
+  }
+
+  Future<void> acceptCall() {
+    return _sdk._acceptCallInternal(callType: SDKConnectCallType.video);
+  }
+
+  Future<void> rejectCall({String reason = 'rejected'}) {
+    return _sdk.rejectCall(reason: reason);
+  }
+
+  Future<void> endCall({String reason = 'ended_by_user'}) {
+    return _sdk.endCall(reason: reason);
+  }
+
+  Future<void> setMuted(bool muted) {
+    return _sdk.setMuted(muted);
+  }
+
+  Future<void> toggleMute() {
+    return _sdk.toggleMute();
+  }
+
+  Future<void> setSpeakerOn(bool speakerOn) {
+    return _sdk.setSpeakerOn(speakerOn);
+  }
+
+  Future<void> toggleSpeaker() {
+    return _sdk.toggleSpeaker();
+  }
+
+  Future<void> setCameraEnabled(bool enabled) {
+    return _videoSdk.setCameraEnabled(enabled);
+  }
+
+  Future<void> toggleCamera() {
+    return _videoSdk.toggleCamera();
+  }
+
+  Future<void> enterPictureInPicture() {
+    return _videoSdk.enterPictureInPicture();
+  }
+
+  Future<void> exitPictureInPicture() {
+    return _videoSdk.exitPictureInPicture();
+  }
+
+  Future<void> _dispose() {
+    return _videoSdk.dispose();
+  }
+}
+
 class _SDKConnectSignalingTransportAdapter
     implements VoiceCallSignalingTransport {
-  _SDKConnectSignalingTransportAdapter(this._delegate);
+  _SDKConnectSignalingTransportAdapter(
+    this._delegate, {
+    required SDKConnectCallType Function() currentCallType,
+  }) : _currentCallType = currentCallType;
 
   final SDKConnectSignalingTransport _delegate;
+  final SDKConnectCallType Function() _currentCallType;
 
   @override
   Stream<VoiceCallSignal> get signals =>
-      _delegate.signals.map((signal) => signal._toVoiceSignal());
+  _delegate.signals.map((signal) => signal._toVoiceSignal());
 
   @override
   Future<void> send(VoiceCallSignal signal) {
-    return _delegate.send(SDKConnectSignal._fromVoice(signal));
+    return _delegate.send(
+      SDKConnectSignal._fromVoice(
+        signal.copyWithCallType(_currentCallType().toCore()),
+      ),
+    );
   }
 
   @override
   Future<void> dispose() {
     return _delegate.dispose();
+  }
+}
+
+extension on VoiceCallSignal {
+  VoiceCallSignal copyWithCallType(CallType callType) {
+    return VoiceCallSignal(
+      type: type,
+      callId: callId,
+      fromUserId: fromUserId,
+      toUserId: toUserId,
+      callType: callType,
+      reason: reason,
+    );
+  }
+}
+
+extension on SDKConnectCallType {
+  CallType toCore() {
+    return switch (this) {
+      SDKConnectCallType.voice => CallType.voice,
+      SDKConnectCallType.video => CallType.video,
+    };
+  }
+}
+
+extension on CallType {
+  SDKConnectCallType toPublic() {
+    return switch (this) {
+      CallType.voice => SDKConnectCallType.voice,
+      CallType.video => SDKConnectCallType.video,
+    };
   }
 }

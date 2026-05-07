@@ -1,7 +1,10 @@
 export 'core/enums/call_direction.dart';
 export 'core/enums/call_phase.dart';
+export 'core/enums/call_type.dart';
 export 'core/errors/call_lifecycle_exception.dart';
 export 'core/models/call_session.dart';
 export 'core/models/call_state.dart';
 export 'core/utils/structured_logger.dart';
+export 'presentation/video/video_call_widgets.dart';
 export 'sdk/sdk_connect_api.dart';
+export 'sdk/video_picture_in_picture.dart';

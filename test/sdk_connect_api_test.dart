@@ -81,22 +81,48 @@ void main() {
 
   test('SDKConnect starts a video call and enables camera automatically', () async {
     final media = _FakeMediaEngine();
+    final signaling = _FakeSignalingTransport();
     final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
 
     final sdk = SDKConnect(
       localUserId: 'user-a',
       callEngine: engine,
-      signaling: _FakeSignalingTransport(),
+      signaling: signaling,
       tokenProvider: (_) async => validCredentials,
       signalValidator: (_) async => true,
     );
 
-    await sdk.startCall(peerId: 'user-b', callType: SDKConnectCallType.video);
+    await sdk.video.startCall(peerId: 'user-b');
 
     expect(media.isVideoEnabled, isTrue);
     expect(engine.state.isVideoEnabled, isTrue);
     expect(engine.state.phase, CallPhase.dialing);
+    expect(signaling.sentSignals.single.callType, SDKConnectCallType.video);
 
+    await sdk.dispose();
+    await engine.dispose();
+  });
+
+  test('SDKConnect exposes split voice facade without video controls', () async {
+    final media = _FakeMediaEngine();
+    final signaling = _FakeSignalingTransport();
+    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
+
+    final sdk = SDKConnect(
+      localUserId: 'user-a',
+      callEngine: engine,
+      signaling: signaling,
+      tokenProvider: (_) async => validCredentials,
+      signalValidator: (_) async => true,
+    );
+
+    await sdk.voice.startCall(peerId: 'user-b', callId: 'call-voice');
+
+    expect(engine.state.phase, CallPhase.dialing);
+    expect(engine.state.isVideoEnabled, isFalse);
+    expect(signaling.sentSignals.single.callType, SDKConnectCallType.voice);
+
+    await sdk.endCall();
     await sdk.dispose();
     await engine.dispose();
   });
@@ -135,6 +161,139 @@ void main() {
     await sdk.toggleCamera();
     expect(media.isVideoEnabled, isFalse);
     expect(engine.state.isVideoEnabled, isFalse);
+
+    await sdk.dispose();
+    await engine.dispose();
+  });
+
+  test('SDKConnect legacy startCall with callType video remains compatible', () async {
+    final media = _FakeMediaEngine();
+    final signaling = _FakeSignalingTransport();
+    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
+
+    final sdk = SDKConnect(
+      localUserId: 'user-a',
+      callEngine: engine,
+      signaling: signaling,
+      tokenProvider: (_) async => validCredentials,
+      signalValidator: (_) async => true,
+    );
+
+    await sdk.startCall(peerId: 'user-b', callType: SDKConnectCallType.video);
+
+    expect(engine.state.phase, CallPhase.dialing);
+    expect(engine.state.isVideoEnabled, isTrue);
+    expect(signaling.sentSignals.single.callType, SDKConnectCallType.video);
+
+    await sdk.dispose();
+    await engine.dispose();
+  });
+
+  test('SDKConnect legacy acceptCall resolves incoming video call type from engine state', () async {
+    final media = _FakeMediaEngine();
+    final signaling = _FakeSignalingTransport();
+    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
+
+    final sdk = SDKConnect(
+      localUserId: 'user-a',
+      callEngine: engine,
+      signaling: signaling,
+      tokenProvider: (_) async => validCredentials,
+      signalValidator: (_) async => true,
+    );
+
+    signaling.pushIncoming(
+      const SDKConnectSignal(
+        type: SDKConnectSignalType.invite,
+        callId: 'call-in-video',
+        fromUserId: 'user-b',
+        toUserId: 'user-a',
+        callType: SDKConnectCallType.video,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(engine.state.phase, CallPhase.ringing);
+    expect(engine.state.session?.callType, CallType.video);
+
+    await sdk.acceptCall();
+
+    expect(engine.state.phase, CallPhase.connected);
+    expect(engine.state.isVideoEnabled, isTrue);
+    expect(
+      signaling.sentSignals.any(
+        (signal) =>
+            signal.type == SDKConnectSignalType.accept &&
+            signal.callType == SDKConnectCallType.video,
+      ),
+      isTrue,
+    );
+
+    await sdk.dispose();
+    await engine.dispose();
+  });
+
+  test('SDKConnect.voice.acceptCall rejects incoming video invite mismatch', () async {
+    final media = _FakeMediaEngine();
+    final signaling = _FakeSignalingTransport();
+    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
+
+    final sdk = SDKConnect(
+      localUserId: 'user-a',
+      callEngine: engine,
+      signaling: signaling,
+      tokenProvider: (_) async => validCredentials,
+      signalValidator: (_) async => true,
+    );
+
+    signaling.pushIncoming(
+      const SDKConnectSignal(
+        type: SDKConnectSignalType.invite,
+        callId: 'call-in-video-2',
+        fromUserId: 'user-b',
+        toUserId: 'user-a',
+        callType: SDKConnectCallType.video,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    await expectLater(
+      () => sdk.voice.acceptCall(),
+      throwsA(isA<StateError>()),
+    );
+
+    await sdk.dispose();
+    await engine.dispose();
+  });
+
+  test('SDKConnect.video.acceptCall rejects incoming voice invite mismatch', () async {
+    final media = _FakeMediaEngine();
+    final signaling = _FakeSignalingTransport();
+    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
+
+    final sdk = SDKConnect(
+      localUserId: 'user-a',
+      callEngine: engine,
+      signaling: signaling,
+      tokenProvider: (_) async => validCredentials,
+      signalValidator: (_) async => true,
+    );
+
+    signaling.pushIncoming(
+      const SDKConnectSignal(
+        type: SDKConnectSignalType.invite,
+        callId: 'call-in-voice-2',
+        fromUserId: 'user-b',
+        toUserId: 'user-a',
+        callType: SDKConnectCallType.voice,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    await expectLater(
+      () => sdk.video.acceptCall(),
+      throwsA(isA<StateError>()),
+    );
 
     await sdk.dispose();
     await engine.dispose();
