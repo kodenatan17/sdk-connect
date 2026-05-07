@@ -3,6 +3,7 @@ import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 import 'package:sdk_connect/presentation/voice/voice_call_controller.dart';
 import 'package:sdk_connect/sdk/livekit_media_engine_factory.dart';
+import 'package:sdk_connect/sdk/voice_call_sdk.dart';
 
 class SdkConnectScope {
   SdkConnectScope._({
@@ -33,6 +34,23 @@ class SdkConnectScope {
 
   VoiceCallController createVoiceCallController() {
     return VoiceCallController(engine: callEngine);
+  }
+
+  VoiceCallSdk createVoiceCallSdk({
+    required String localUserId,
+    required VoiceCallSignalingTransport signaling,
+    required VoiceCallTokenProvider tokenProvider,
+    required VoiceCallSignalValidator signalValidator,
+    VoiceCallCallbacks callbacks = const VoiceCallCallbacks(),
+  }) {
+    return VoiceCallSdk(
+      localUserId: localUserId,
+      callEngine: callEngine,
+      signaling: signaling,
+      tokenProvider: tokenProvider,
+      signalValidator: signalValidator,
+      callbacks: callbacks,
+    );
   }
 
   Future<void> dispose() {

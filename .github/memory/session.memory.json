@@ -1,17 +1,35 @@
 {
-  "feature": "Voice Call SDK example folder and README example usage",
+  "feature": "self-contained VoiceCallSdk facade for sdk_connect voice calls",
   "keys": [
     "ARCH_CALL_ENGINE_LIFECYCLE_V1",
     "RULE_SDK_ONLY_USAGE_V1",
-    "RULE_P2P_MAX_2_V1"
+    "RULE_P2P_MAX_2_V1",
+    "ARCH_VOICE_CALL_SDK_FACADE_V1",
+    "ARCH_CALL_ENGINE_SSOT_V2",
+    "SEC_SIGNAL_VALIDATION_REQUIRED_V1",
+    "SEC_SECURE_RANDOM_CALL_ID_V1",
+    "TEST_WIDGET_SKIP_USER_APPROVED_V1"
   ],
   "constraints_preserved": [
     "CallEngine lifecycle",
     "SDK-only usage",
-    "P2P max 2"
+    "P2P max 2",
+    "CallEngine remains SSOT",
+    "Mandatory signal validation",
+    "Secure random call IDs"
   ],
-  "agents": ["mbg-memory-system", "senior-reviewer", "pakpol-security"],
+  "agents": ["solo-orchestrator", "senior-reviewer", "pakpol-security"],
   "skills": ["flutter-architecture-skill"],
   "outcome": "success",
-  "round": 2
+  "verified_facts": [
+    "VoiceCallSdk.liveKit owns CallEngine and LiveKit media lifecycle",
+    "CallEngine remains the single source of truth",
+    "P2P participant limit remains enforced in LiveKitMediaEngine",
+    "Unified callbacks are exposed for user, connection, error, and token events",
+    "Signal validation is mandatory on VoiceCallSdk",
+    "Secure random call IDs replaced timestamp-based IDs",
+    "Example app and README use VoiceCallSdk as the primary integration path",
+    "One flaky widget test is intentionally skipped at user request while the suite passes 15 tests"
+  ],
+  "round": 3
 }

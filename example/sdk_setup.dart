@@ -3,6 +3,8 @@ import 'package:sdk_connect/sdk_connect.dart';
 class SdkSetup {
   const SdkSetup();
 
+  static const String localUserId = 'demo-user-a';
+
   static const String roomUrl =
       String.fromEnvironment('SDK_CONNECT_ROOM_URL', defaultValue: '');
   static const String token =
@@ -13,12 +15,39 @@ class SdkSetup {
     return SdkConnectScope.liveKit();
   }
 
+  InMemoryVoiceCallSignalingTransport createDemoSignaling() {
+    return InMemoryVoiceCallSignalingTransport();
+  }
+
+  VoiceCallTokenProvider createTokenProvider() {
+    return (_) async => VoiceCallCredentials(
+          roomUrl: requireValidRoomUrl(),
+          token: requireValidToken(),
+        );
+  }
+
+  VoiceCallSignalValidator createSignalValidator() {
+    const allowedPeers = <String>{'peer-a', 'peer-b'};
+    return (signal) async {
+      return signal.toUserId == localUserId &&
+          allowedPeers.contains(signal.fromUserId);
+    };
+  }
+
   void simulateIncomingForDemo({
-    required SdkConnectScope scope,
+    required VoiceCallSignalingTransport signaling,
+    required String localUserId,
     required String callId,
     required String peerId,
   }) {
-    scope.callEngine.onIncoming(callId: callId, peerId: peerId);
+    signaling.send(
+      VoiceCallSignal(
+        type: VoiceCallSignalType.invite,
+        callId: callId,
+        fromUserId: peerId,
+        toUserId: localUserId,
+      ),
+    );
   }
 
   String requireValidToken() {

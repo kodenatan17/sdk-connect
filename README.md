@@ -1,11 +1,13 @@
 # SDK Connect
 
-Flutter SDK for realtime voice call built with a single `CallEngine` lifecycle and SDK-first integration.
+Flutter voice-call SDK with a single `CallEngine` lifecycle, internal connection orchestration, and an SDK-only public API.
 
 ## Key Points
 
 - Single source of truth in `CallEngine`
 - SDK abstraction first (no direct LiveKit usage in app layer)
+- Self-contained `VoiceCallSdk` facade for init, signaling, token resolution, and media connection
+- Unified callbacks for user, connection, error, and token events
 - Voice call lifecycle: `idle -> dialing/ringing -> connected -> ended -> idle`
 - P2P only policy (maximum 2 participants)
 
@@ -53,69 +55,107 @@ flutter run \
 
 ### Flow: Init -> Call -> End
 
-1. Initialize SDK scope:
+1. Create the self-contained SDK facade:
 
 ```dart
 const setup = SdkSetup();
-final scope = await setup.initialize();
-final controller = scope.createVoiceCallController();
-```
+final signaling = setup.createDemoSignaling();
 
-2. Start outgoing call:
-
-```dart
-await controller.startOutgoing(
-  callId: 'call-123',
-  peerId: 'peer-b',
-  roomUrl: roomUrl,
-  token: token,
+final sdk = VoiceCallSdk.liveKit(
+  localUserId: 'user-a',
+  signaling: signaling,
+  tokenProvider: setup.createTokenProvider(),
+  signalValidator: setup.createSignalValidator(),
+  callbacks: VoiceCallCallbacks(
+    onUser: (event) {},
+    onConnection: (event) {},
+    onError: (event) {},
+    onToken: (event) {},
+  ),
 );
 ```
 
-When remote side accepts (via signaling), transition to connected through your
-application/controller event handling.
+2. Start outgoing call with SDK-only input:
 
-3. Receive incoming call and accept:
+```dart
+await sdk.startCall(callId: 'call-123', peerId: 'peer-b');
+```
+
+The SDK requests credentials internally through `tokenProvider`, connects media,
+and handles the remote accept signal internally.
+
+3. Receive incoming call through signaling and accept:
 
 ```dart
 setup.simulateIncomingForDemo(
-  scope: scope,
+  signaling: signaling,
+  localUserId: 'user-a',
   callId: 'call-456',
   peerId: 'peer-a',
 );
 
-await controller.acceptIncoming(
-  roomUrl: roomUrl,
-  token: token,
-);
+await sdk.acceptCall();
 ```
 
 4. In-call controls (mute, speaker, end):
 
 ```dart
-await controller.toggleMute();
-await controller.toggleSpeaker();
-await controller.endCall(reason: 'ended_by_user');
+await sdk.toggleMute();
+await sdk.toggleSpeaker();
+await sdk.endCall(reason: 'ended_by_user');
 ```
 
 ### Key Snippets
 
-- SDK init only:
+- Self-contained SDK init:
 
 ```dart
-final scope = SdkConnectScope.liveKit();
+final sdk = VoiceCallSdk.liveKit(
+  localUserId: currentUserId,
+  signaling: yourSignalingTransport,
+  tokenProvider: yourTokenProvider,
+  signalValidator: yourSignalValidator,
+);
 ```
 
-- Incoming UI + in-call UI integration:
+- Unified callback surface:
 
 ```dart
-if (controller.callState.phase == CallPhase.ringing) {
-  return IncomingCallScreen(...);
-}
+VoiceCallCallbacks(
+  onUser: (event) {
+    // incoming, accepted, rejected, ended, p2p-limit
+  },
+  onConnection: (event) {
+    // ready, dialing, ringing, connected, ended, idle
+  },
+  onError: (event) {
+    // operation + error payload
+  },
+  onToken: (event) {
+    // requested, resolved, failed
+  },
+);
+```
+
+- Trusted signaling validation:
+
+```dart
+final yourSignalValidator = (VoiceCallSignal signal) async {
+  return signal.toUserId == currentUserId &&
+      trustedPeerIds.contains(signal.fromUserId);
+};
+```
+
+- Optional SDK-provided UI controller over the same `CallEngine`:
+
+```dart
+final controller = sdk.createController();
 
 return VoiceCallScreen(
   controller: controller,
-  onEnd: () => controller.endCall(),
+  onAccept: sdk.acceptCall,
+  onReject: () => sdk.rejectCall(),
+  onEnd: () => sdk.endCall(),
 );
 ```
 
@@ -123,7 +163,7 @@ return VoiceCallScreen(
 
 ```dart
 try {
-  await controller.acceptIncoming(roomUrl: roomUrl, token: token);
+  await sdk.startCall(peerId: 'peer-b');
 } on P2PLimitExceededException {
   // Room has more than 2 participants.
 }
@@ -131,9 +171,9 @@ try {
 
 ## Notes
 
-- Always validate token and room URL before starting or accepting a call.
-- Use short-lived backend-issued access tokens at runtime only.
-- Validate incoming signaling events (sender/session ownership) before driving call actions.
+- Provide a signaling transport implementation that carries `VoiceCallSignal` messages.
+- Provide a short-lived backend token provider that returns `VoiceCallCredentials`.
+- Validate signaling sender identity and call ownership before the SDK processes events.
 - Do not bypass SDK abstractions by using LiveKit directly in UI/application code.
 - Group call is intentionally rejected by design (P2P only).
 

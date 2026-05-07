@@ -30,8 +30,9 @@ class ExampleHomePage extends StatefulWidget {
 class _ExampleHomePageState extends State<ExampleHomePage> {
   final SdkSetup _setup = const SdkSetup();
 
-  SdkConnectScope? _scope;
+  VoiceCallSdk? _sdk;
   VoiceCallController? _controller;
+  InMemoryVoiceCallSignalingTransport? _signaling;
   Object? _error;
 
   @override
@@ -42,16 +43,50 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
 
   Future<void> _initializeSdk() async {
     try {
-      final scope = await _setup.initialize();
+      final signaling = _setup.createDemoSignaling();
+      final sdk = VoiceCallSdk.liveKit(
+        localUserId: SdkSetup.localUserId,
+        signaling: signaling,
+        tokenProvider: _setup.createTokenProvider(),
+        signalValidator: _setup.createSignalValidator(),
+        callbacks: VoiceCallCallbacks(
+          onUser: (event) {
+            if (!mounted) {
+              return;
+            }
+            switch (event.type) {
+              case VoiceCallUserEventType.incomingReceived:
+              case VoiceCallUserEventType.outgoingStarted:
+              case VoiceCallUserEventType.accepted:
+                break;
+              case VoiceCallUserEventType.rejected:
+                _showMessage('Call rejected: ${event.reason ?? 'rejected'}');
+              case VoiceCallUserEventType.ended:
+                _showMessage('Call ended: ${event.reason ?? 'ended'}');
+              case VoiceCallUserEventType.p2pLimitExceeded:
+                _showMessage('P2P only: max 2 participants per room.');
+            }
+          },
+          onError: (event) {
+            if (!mounted) {
+              return;
+            }
+            _showMessage('Voice SDK error on ${event.operation}.');
+          },
+        ),
+      );
+      final controller = sdk.createController();
+
       if (!mounted) {
-        await scope.dispose();
+        controller.dispose();
+        await sdk.dispose();
         return;
       }
 
-      final controller = scope.createVoiceCallController();
       setState(() {
-        _scope = scope;
+        _sdk = sdk;
         _controller = controller;
+        _signaling = signaling;
       });
     } catch (error) {
       if (!mounted) {
@@ -66,29 +101,21 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   @override
   void dispose() {
     _controller?.dispose();
-    final scope = _scope;
-    if (scope != null) {
-      unawaited(scope.dispose());
+    final sdk = _sdk;
+    if (sdk != null) {
+      unawaited(sdk.dispose());
     }
     super.dispose();
   }
 
   Future<void> _startOutgoingCall() async {
-    final controller = _controller;
-    if (controller == null) {
+    final sdk = _sdk;
+    if (sdk == null) {
       return;
     }
 
     try {
-      final roomUrl = _setup.requireValidRoomUrl();
-      final token = _setup.requireValidToken();
-
-      await controller.startOutgoing(
-        callId: _randomCallId(),
-        peerId: 'peer-b',
-        roomUrl: roomUrl,
-        token: token,
-      );
+      await sdk.startCall(callId: _randomCallId(), peerId: 'peer-b');
     } on P2PLimitExceededException {
       _showMessage('P2P only: max 2 participants per room.');
     } on StateError {
@@ -99,14 +126,15 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   }
 
   void _simulateIncomingCall() {
-    final scope = _scope;
-    if (scope == null) {
+    final signaling = _signaling;
+    if (signaling == null) {
       return;
     }
 
     try {
       _setup.simulateIncomingForDemo(
-        scope: scope,
+        signaling: signaling,
+        localUserId: SdkSetup.localUserId,
         callId: _randomCallId(),
         peerId: 'peer-a',
       );
@@ -116,16 +144,13 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   }
 
   Future<void> _acceptIncoming() async {
-    final controller = _controller;
-    if (controller == null) {
+    final sdk = _sdk;
+    if (sdk == null) {
       return;
     }
 
     try {
-      await controller.acceptIncoming(
-        roomUrl: _setup.requireValidRoomUrl(),
-        token: _setup.requireValidToken(),
-      );
+      await sdk.acceptCall();
     } on P2PLimitExceededException {
       _showMessage('P2P only: room already has more than 2 participants.');
     } on StateError {
@@ -136,26 +161,26 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   }
 
   Future<void> _rejectIncoming() async {
-    final controller = _controller;
-    if (controller == null) {
+    final sdk = _sdk;
+    if (sdk == null) {
       return;
     }
 
     try {
-      await controller.rejectIncoming(reason: 'rejected_by_user');
+      await sdk.rejectCall(reason: 'rejected_by_user');
     } catch (_) {
       _showMessage('Failed to reject incoming call.');
     }
   }
 
   Future<void> _endCall() async {
-    final controller = _controller;
-    if (controller == null) {
+    final sdk = _sdk;
+    if (sdk == null) {
       return;
     }
 
     try {
-      await controller.endCall(reason: 'ended_by_user');
+      await sdk.endCall(reason: 'ended_by_user');
     } catch (_) {
       _showMessage('Failed to end call.');
     }

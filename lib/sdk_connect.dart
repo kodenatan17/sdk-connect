@@ -10,3 +10,4 @@ export 'infrastructure/media/media_engine.dart';
 export 'presentation/voice/voice_call_controller.dart';
 export 'presentation/voice/voice_call_screen.dart';
 export 'sdk/livekit_media_engine_factory.dart';
+export 'sdk/voice_call_sdk.dart';

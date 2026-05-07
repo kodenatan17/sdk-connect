@@ -54,7 +54,11 @@ Check:
 - Engine → MUST contain core call logic
 - Infrastructure → ONLY external systems
 
-FAIL if violated
+FAIL if:
+- vioalted
+- LiveKit used directly in UI
+- SDK still requires manual init outside
+- no unified event system
 
 ---
 

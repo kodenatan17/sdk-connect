@@ -7,5 +7,52 @@
     "RULE_TOKEN_REQUIRED",
     "RULE_SDK_ONLY_USAGE_V1",
     "RULE_P2P_MAX_2_V1"
+  ],
+  "SDK_ABSTRACTION_REQUIRED": {
+  "description": "SDK must abstract LiveKit into a simple consumer API",
+  "rules": [
+    "Consumers must not interact with LiveKit directly",
+    "SDK must expose unified callbacks",
+    "SDK must handle initialization internally",
+    "SDK must unify connection, signaling, and lifecycle"
   ]
+},
+  "ARCH_VOICE_CALL_SDK_FACADE_V1": {
+    "description": "VoiceCallSdk.liveKit is the primary facade for sdk_connect voice calls and owns CallEngine plus LiveKit media lifecycle",
+    "rules": [
+      "VoiceCallSdk.liveKit manages CallEngine creation and disposal",
+      "VoiceCallSdk.liveKit manages LiveKit media engine lifecycle internally",
+      "Example app and README should use VoiceCallSdk as the primary integration path"
+    ]
+  },
+  "ARCH_CALL_ENGINE_SSOT_V2": {
+    "description": "CallEngine remains the single source of truth even when wrapped by VoiceCallSdk",
+    "rules": [
+      "Call state mutations flow through CallEngine",
+      "Facade layers must not duplicate call lifecycle state",
+      "Unified callbacks may observe state but not replace engine authority"
+    ]
+  },
+  "SEC_SIGNAL_VALIDATION_REQUIRED_V1": {
+    "description": "Signal validation is mandatory before VoiceCallSdk processes call setup",
+    "rules": [
+      "VoiceCallSdk must reject invalid or incomplete signaling payloads",
+      "Token and signaling validation remain required preconditions for call setup"
+    ]
+  },
+  "SEC_SECURE_RANDOM_CALL_ID_V1": {
+    "description": "Call identifiers must use secure random generation rather than timestamps",
+    "rules": [
+      "Timestamp-based call IDs are not permitted",
+      "Generated call IDs must be suitable for external signaling contexts"
+    ]
+  },
+  "TEST_WIDGET_SKIP_USER_APPROVED_V1": {
+    "description": "A known flaky widget test may remain skipped when explicitly approved by the user and the rest of the suite passes",
+    "rules": [
+      "Document the intentional skip in memory or task notes",
+      "Keep the skip scoped to the flaky test only",
+      "Preserve passing coverage for the remaining suite"
+    ]
+  }
 }

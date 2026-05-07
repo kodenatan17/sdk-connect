@@ -68,7 +68,8 @@ From MEMORY KEYS:
 - SIGNALING_MQTT → realtime-signaling-skill  
 - LIVEKIT_WRAPPER → media-engine-skill  
 - SEC_TOKEN_REQUIRED → realtime-security-skill  
-- SEC_SIGNALING_VALIDATION → realtime-security-skill  
+- SEC_SIGNALING_VALIDATION → realtime-security-skill
+- SDK_ABSTRACTION_REQUIRED → sdk-abstraction-skill
 
 ---
 
