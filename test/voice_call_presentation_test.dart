@@ -152,6 +152,7 @@ class _FakeMediaEngine implements MediaEngine {
   bool _connected = false;
   bool _isMuted = false;
   bool _isSpeakerOn = false;
+  bool _isVideoEnabled = false;
   final StreamController<MediaEngineEvent> _eventsController =
       StreamController<MediaEngineEvent>.broadcast();
 
@@ -168,6 +169,9 @@ class _FakeMediaEngine implements MediaEngine {
   bool get isSpeakerOn => _isSpeakerOn;
 
   @override
+  bool get isVideoEnabled => _isVideoEnabled;
+
+  @override
   Future<void> connect({required String roomUrl, required String token}) async {
     connectCount += 1;
     _connected = true;
@@ -179,6 +183,7 @@ class _FakeMediaEngine implements MediaEngine {
     _connected = false;
     _isMuted = false;
     _isSpeakerOn = false;
+    _isVideoEnabled = false;
   }
 
   @override
@@ -192,10 +197,16 @@ class _FakeMediaEngine implements MediaEngine {
   }
 
   @override
+  Future<void> setCameraOn(bool enabled) async {
+    _isVideoEnabled = enabled;
+  }
+
+  @override
   Future<void> dispose() async {
     _connected = false;
     _isMuted = false;
     _isSpeakerOn = false;
+    _isVideoEnabled = false;
     await _eventsController.close();
   }
 }

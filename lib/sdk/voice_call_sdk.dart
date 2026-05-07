@@ -444,6 +444,15 @@ class VoiceCallSdk {
     await setSpeakerOn(!_callEngine.state.isSpeakerOn);
   }
 
+  Future<void> setVideoEnabled(bool enabled) async {
+    _ensureReady('setVideoEnabled');
+    await _callEngine.setVideoEnabled(enabled);
+  }
+
+  Future<void> toggleCamera() async {
+    await setVideoEnabled(!_callEngine.state.isVideoEnabled);
+  }
+
   Future<void> dispose() async {
     if (_isDisposed) {
       return;
@@ -506,12 +515,28 @@ class VoiceCallSdk {
       return;
     }
 
-    if (signal.toUserId != _localUserId || !_isValidSignalEnvelope(signal)) {
+    if (signal.toUserId != _localUserId) {
+      return; // Not addressed to us — silent drop.
+    }
+
+    if (!_isValidSignalEnvelope(signal)) {
+      _emitError(
+        'signal.validation_failed',
+        CallLifecycleException('Rejected signal: invalid envelope fields.'),
+        null,
+      );
       return;
     }
 
     final allowedByValidator = await _signalValidator(signal);
     if (!allowedByValidator) {
+      _emitError(
+        'signal.validation_rejected',
+        CallLifecycleException(
+          'Rejected signal ${signal.type.name} from ${signal.fromUserId}: denied by signalValidator.',
+        ),
+        null,
+      );
       return;
     }
 

@@ -1,5 +1,5 @@
 {
-  "feature": "final SDKConnect public API facade",
+  "feature": "video support + token/signaling hardening",
   "keys": [
     "ARCH_CALL_ENGINE_LIFECYCLE_V1",
     "RULE_SDK_ONLY_USAGE_V1",
@@ -9,7 +9,12 @@
     "SEC_SIGNAL_VALIDATION_REQUIRED_V1",
     "SEC_SECURE_RANDOM_CALL_ID_V1",
     "TEST_WIDGET_SKIP_USER_APPROVED_V1",
-    "ARCH_SDKCONNECT_PUBLIC_FACADE_V1"
+    "ARCH_SDKCONNECT_PUBLIC_FACADE_V1",
+    "ARCH_VIDEO_CALL_ADDITIVE_V1",
+    "MEDIA_VIDEO_CAMERA_V1",
+    "SEC_TOKEN_EXPIRY_CHECK_V1",
+    "SEC_SIGNAL_REJECT_EMITS_ERROR_V1",
+    "TEST_COVERAGE_V2"
   ],
   "constraints_preserved": [
     "CallEngine lifecycle",
@@ -17,18 +22,24 @@
     "P2P max 2",
     "CallEngine remains SSOT",
     "Mandatory signal validation",
-    "Secure random call IDs"
+    "Secure random call IDs",
+    "JWT expiry enforced before media connect",
+    "Invalid signals emit error events (no silent drops)"
   ],
-  "agents": ["solo-orchestrator", "mbg-memory-system", "senior-reviewer", "pakpol-security"],
-  "skills": ["flutter-architecture-skill"],
+  "agents": ["joko-builder"],
+  "skills": ["flutter-architecture-skill", "sdk-abstraction-skill", "realtime-security-skill"],
   "outcome": "success",
   "verified_facts": [
-    "SDKConnect is now the documented public entry point",
-    "Barrel exports were narrowed to SDKConnect facade and core models",
-    "Callbacks and events are unified under SDKConnect",
-    "Voice uses callType=voice with video reserved for additive expansion",
-    "Example and README now use SDKConnect.create",
-    "VoiceCallSdk remains an internal compatibility layer behind the neutral SDKConnect facade"
+    "Video added additively via SDKConnectCallType.video with no breaking changes to voice path",
+    "startCall/acceptCall auto-enable camera when callType=video",
+    "VoiceCallSdk.setVideoEnabled and toggleCamera wired through to CallEngine",
+    "MediaEngine now exposes setCameraOn(bool) and isVideoEnabled",
+    "LiveKitMediaEngine implements setCameraOn via localParticipant.setCameraEnabled",
+    "CallState includes isVideoEnabled field",
+    "CallEngine._validateConnectParams decodes JWT payload and checks exp claim",
+    "Expired tokens throw CallLifecycleException before media connect",
+    "VoiceCallSdk._handleSignal emits VoiceCallErrorEvent on invalid envelope and on signalValidator rejection",
+    "22 tests passing (1 skipped); new tests cover video, JWT expiry, and signal rejection paths"
   ],
-  "round": 4
+  "round": 5
 }

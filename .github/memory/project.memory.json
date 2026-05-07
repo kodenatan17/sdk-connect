@@ -65,5 +65,44 @@
       "Example app and README use SDKConnect.create as the integration path",
       "VoiceCallSdk remains an internal compatibility layer behind SDKConnect"
     ]
+  },
+  "ARCH_VIDEO_CALL_ADDITIVE_V1": {
+    "description": "Video support added additively via SDKConnectCallType.video; no breaking changes to voice path",
+    "rules": [
+      "startCall/acceptCall auto-enable camera when callType=video via CallEngine.setVideoEnabled",
+      "VoiceCallSdk.setVideoEnabled and toggleCamera are wired through to CallEngine",
+      "Voice callType remains unaffected by video additions"
+    ]
+  },
+  "MEDIA_VIDEO_CAMERA_V1": {
+    "description": "MediaEngine extended with camera control; CallState tracks video enablement",
+    "rules": [
+      "MediaEngine interface exposes setCameraOn(bool) and isVideoEnabled",
+      "LiveKitMediaEngine implements setCameraOn via localParticipant.setCameraEnabled",
+      "CallState includes isVideoEnabled field as source of truth for video state"
+    ]
+  },
+  "SEC_TOKEN_EXPIRY_CHECK_V1": {
+    "description": "JWT expiry enforced in CallEngine before media connect",
+    "rules": [
+      "CallEngine._validateConnectParams decodes JWT payload via base64url",
+      "exp claim is checked against current clock time",
+      "Expired tokens throw CallLifecycleException before any media connection attempt"
+    ]
+  },
+  "SEC_SIGNAL_REJECT_EMITS_ERROR_V1": {
+    "description": "Invalid or rejected signals emit VoiceCallErrorEvent instead of silent drop",
+    "rules": [
+      "VoiceCallSdk._handleSignal emits VoiceCallErrorEvent on invalid envelope (signal.validation_failed)",
+      "signalValidator rejection emits VoiceCallErrorEvent (signal.validation_rejected)",
+      "Silent signal drops are not permitted"
+    ]
+  },
+  "TEST_COVERAGE_V2": {
+    "description": "22 tests passing (1 skipped) as of 2026-05-07",
+    "rules": [
+      "New tests cover: video start enables camera, setVideoEnabled toggle, expired JWT rejection, malformed JWT, signalValidator rejection emits error, invalid envelope emits error",
+      "Widget test skip remains intentional per TEST_WIDGET_SKIP_USER_APPROVED_V1"
+    ]
   }
 }

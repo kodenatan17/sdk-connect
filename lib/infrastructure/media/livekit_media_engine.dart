@@ -12,6 +12,7 @@ class LiveKitMediaEngine implements MediaEngine {
   lk.EventsListener<lk.RoomEvent>? _roomListener;
   bool _isMuted = false;
   bool _isSpeakerOn = false;
+  bool _isVideoEnabled = false;
 
   @override
   Stream<MediaEngineEvent> get events => _eventsController.stream;
@@ -24,6 +25,9 @@ class LiveKitMediaEngine implements MediaEngine {
 
   @override
   bool get isSpeakerOn => _isSpeakerOn;
+
+  @override
+  bool get isVideoEnabled => _isVideoEnabled;
 
   @override
   Future<void> connect({
@@ -72,6 +76,7 @@ class LiveKitMediaEngine implements MediaEngine {
     await _room.disconnect();
     _isMuted = false;
     _isSpeakerOn = false;
+    _isVideoEnabled = false;
   }
 
   @override
@@ -95,6 +100,16 @@ class LiveKitMediaEngine implements MediaEngine {
   }
 
   @override
+  Future<void> setCameraOn(bool enabled) async {
+    if (!isConnected) {
+      return;
+    }
+
+    await _room.localParticipant?.setCameraEnabled(enabled);
+    _isVideoEnabled = enabled;
+  }
+
+  @override
   Future<void> dispose() async {
     await _disposeRoomListener();
     if (isConnected) {
@@ -102,6 +117,7 @@ class LiveKitMediaEngine implements MediaEngine {
     }
     _isMuted = false;
     _isSpeakerOn = false;
+    _isVideoEnabled = false;
     if (!_eventsController.isClosed) {
       await _eventsController.close();
     }
@@ -126,6 +142,7 @@ class LiveKitMediaEngine implements MediaEngine {
     }
     _isMuted = false;
     _isSpeakerOn = false;
+    _isVideoEnabled = false;
   }
 
   Future<void> _disposeRoomListener() async {

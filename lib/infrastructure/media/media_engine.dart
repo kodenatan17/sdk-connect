@@ -36,9 +36,12 @@ abstract class MediaEngine {
 
   Future<void> setSpeakerOn(bool speakerOn);
 
+  Future<void> setCameraOn(bool enabled);
+
   Future<void> dispose();
 
   bool get isConnected;
   bool get isMuted;
   bool get isSpeakerOn;
+  bool get isVideoEnabled;
 }

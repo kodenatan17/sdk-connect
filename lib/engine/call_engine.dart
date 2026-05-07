@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:sdk_connect/core/enums/call_direction.dart';
 import 'package:sdk_connect/core/enums/call_phase.dart';
@@ -276,6 +277,28 @@ class CallEngine {
     );
   }
 
+  Future<void> setVideoEnabled(bool enabled) async {
+    _ensureActive('set_video_enabled');
+    _guardPhase(
+      expected: const <CallPhase>{CallPhase.dialing, CallPhase.connected},
+      action: 'set_video_enabled',
+    );
+
+    await _mediaEngine.setCameraOn(enabled);
+    _state = _state.copyWith(
+      isVideoEnabled: enabled,
+      updatedAt: _clock(),
+    );
+    _controller.add(_state);
+    _log(
+      'call.video_updated',
+      <String, Object?>{
+        'callId': _state.session?.callId,
+        'isVideoEnabled': enabled,
+      },
+    );
+  }
+
   Future<void> dispose() async {
     if (_isDisposed) {
       return;
@@ -334,14 +357,37 @@ class CallEngine {
     required String token,
   }) {
     final uri = Uri.tryParse(roomUrl);
-    final hasJwtShape = token.split('.').length == 3;
-
     if (uri == null || !(uri.isScheme('ws') || uri.isScheme('wss'))) {
-      throw CallLifecycleException('Invalid roomUrl.');
+      throw CallLifecycleException('Invalid roomUrl: must be a ws:// or wss:// URI.');
     }
 
-    if (token.trim().isEmpty || !hasJwtShape) {
-      throw CallLifecycleException('Invalid token.');
+    final parts = token.trim().split('.');
+    if (parts.length != 3 || parts.any((p) => p.isEmpty)) {
+      throw CallLifecycleException('Invalid token: malformed JWT structure.');
+    }
+
+    // Attempt to decode payload and check expiry.
+    try {
+      final payload = parts[1];
+      final normalized = base64Url.normalize(payload);
+      final decoded = utf8.decode(base64Url.decode(normalized));
+      final dynamic json = jsonDecode(decoded);
+      if (json is Map) {
+        final exp = json['exp'];
+        if (exp is num) {
+          final expiry = DateTime.fromMillisecondsSinceEpoch(
+            exp.toInt() * 1000,
+            isUtc: true,
+          );
+          if (expiry.isBefore(_clock())) {
+            throw CallLifecycleException('Invalid token: JWT has expired.');
+          }
+        }
+      }
+    } on CallLifecycleException {
+      rethrow;
+    } catch (_) {
+      // Non-decodable payload: structural shape was already verified above.
     }
   }
 
@@ -409,6 +455,7 @@ class CallEngine {
       reason: reason,
       isMuted: to == CallPhase.connected ? _state.isMuted : false,
       isSpeakerOn: to == CallPhase.connected ? _state.isSpeakerOn : false,
+      isVideoEnabled: to == CallPhase.connected || to == CallPhase.dialing ? _state.isVideoEnabled : false,
       clearReason: clearReason,
       updatedAt: _clock(),
     );
@@ -432,6 +479,7 @@ class CallEngine {
       phase: CallPhase.idle,
       isMuted: false,
       isSpeakerOn: false,
+      isVideoEnabled: false,
       updatedAt: _clock(),
     );
 

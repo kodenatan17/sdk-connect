@@ -394,15 +394,21 @@ class SDKConnect {
     String? callId,
     SDKConnectCallType callType = SDKConnectCallType.voice,
   }) async {
-    _ensureSupported(callType);
+    _ensureVideoOrVoice(callType);
     await _voiceSdk.startCall(peerId: peerId, callId: callId);
+    if (callType == SDKConnectCallType.video) {
+      await _voiceSdk.setVideoEnabled(true);
+    }
   }
 
   Future<void> acceptCall({
     SDKConnectCallType callType = SDKConnectCallType.voice,
   }) async {
-    _ensureSupported(callType);
+    _ensureVideoOrVoice(callType);
     await _voiceSdk.acceptCall();
+    if (callType == SDKConnectCallType.video) {
+      await _voiceSdk.setVideoEnabled(true);
+    }
   }
 
   Future<void> rejectCall({String reason = 'rejected'}) {
@@ -427,6 +433,14 @@ class SDKConnect {
 
   Future<void> toggleSpeaker() {
     return _voiceSdk.toggleSpeaker();
+  }
+
+  Future<void> setVideoEnabled(bool enabled) {
+    return _voiceSdk.setVideoEnabled(enabled);
+  }
+
+  Future<void> toggleCamera() {
+    return _voiceSdk.toggleCamera();
   }
 
   Future<void> dispose() async {
@@ -477,14 +491,11 @@ class SDKConnect {
     }
   }
 
-  void _ensureSupported(SDKConnectCallType callType) {
-    if (callType == SDKConnectCallType.voice) {
+  void _ensureVideoOrVoice(SDKConnectCallType callType) {
+    if (callType == SDKConnectCallType.voice || callType == SDKConnectCallType.video) {
       return;
     }
-
-    throw UnsupportedError(
-      'SDKConnect reserves video for a future non-breaking expansion. Use voice for now.',
-    );
+    throw UnsupportedError('Unsupported callType: ${callType.name}.');
   }
 }
 

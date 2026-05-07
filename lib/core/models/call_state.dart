@@ -8,6 +8,7 @@ class CallState {
     this.reason,
     required this.isMuted,
     required this.isSpeakerOn,
+    required this.isVideoEnabled,
     required this.updatedAt,
   });
 
@@ -16,6 +17,7 @@ class CallState {
       phase: CallPhase.idle,
       isMuted: false,
       isSpeakerOn: false,
+      isVideoEnabled: false,
       updatedAt: DateTime.now().toUtc(),
     );
   }
@@ -25,6 +27,7 @@ class CallState {
   final String? reason;
   final bool isMuted;
   final bool isSpeakerOn;
+  final bool isVideoEnabled;
   final DateTime updatedAt;
 
   CallState copyWith({
@@ -33,6 +36,7 @@ class CallState {
     String? reason,
     bool? isMuted,
     bool? isSpeakerOn,
+    bool? isVideoEnabled,
     DateTime? updatedAt,
     bool clearReason = false,
   }) {
@@ -42,6 +46,7 @@ class CallState {
       reason: clearReason ? null : (reason ?? this.reason),
       isMuted: isMuted ?? this.isMuted,
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
+      isVideoEnabled: isVideoEnabled ?? this.isVideoEnabled,
       updatedAt: updatedAt ?? DateTime.now().toUtc(),
     );
   }
@@ -53,6 +58,7 @@ class CallState {
       'reason': reason,
       'isMuted': isMuted,
       'isSpeakerOn': isSpeakerOn,
+      'isVideoEnabled': isVideoEnabled,
       'updatedAt': updatedAt.toIso8601String(),
     };
   }
