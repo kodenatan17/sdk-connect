@@ -1,6 +1,17 @@
 {
-  "feature": "voice_call_sdk",
-  "agents": ["joko-builder", "senior-reviewer", "pakpol-security"],
-  "skills": ["flutter-architecture-skill", "flutter-security-skill"],
-  "round": 1
+  "feature": "Voice Call SDK example folder and README example usage",
+  "keys": [
+    "ARCH_CALL_ENGINE_LIFECYCLE_V1",
+    "RULE_SDK_ONLY_USAGE_V1",
+    "RULE_P2P_MAX_2_V1"
+  ],
+  "constraints_preserved": [
+    "CallEngine lifecycle",
+    "SDK-only usage",
+    "P2P max 2"
+  ],
+  "agents": ["mbg-memory-system", "senior-reviewer", "pakpol-security"],
+  "skills": ["flutter-architecture-skill"],
+  "outcome": "success",
+  "round": 2
 }

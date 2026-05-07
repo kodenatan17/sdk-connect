@@ -1,162 +1,142 @@
-# 📞 LiveKit Voice & Video Call Flutter SDK
+# SDK Connect
 
-SDK Flutter untuk membangun fitur **Voice Call** dan **Video Call** real-time berbasis **LiveKit (WebRTC)** dengan arsitektur yang stabil, scalable, dan siap production.
+Flutter SDK for realtime voice call built with a single `CallEngine` lifecycle and SDK-first integration.
 
-SDK ini menggunakan pendekatan **Call Engine + SDK Layer**, sehingga:
-- tidak ada duplikasi logic (caller vs callee)
-- lifecycle panggilan konsisten
-- mudah diintegrasikan ke berbagai aplikasi
+## Key Points
 
----
+- Single source of truth in `CallEngine`
+- SDK abstraction first (no direct LiveKit usage in app layer)
+- Voice call lifecycle: `idle -> dialing/ringing -> connected -> ended -> idle`
+- P2P only policy (maximum 2 participants)
 
-## ✨ Key Features
+## Installation
 
-- 🔊 **Voice & 🎥 Video Call (Realtime)**  
-  Latensi rendah menggunakan WebRTC via LiveKit
+Add dependency:
 
-- 🧠 **Centralized Call Engine (SSOT)**  
-  Semua state & lifecycle dikelola oleh `CallEngine`
-
-- 🔁 **Stable Call Lifecycle**  
-  Start → Ringing → Connected → End
-
-- 🔒 **Single Active Call Enforcement**  
-  Mencegah multiple call dalam satu waktu
-
-- 🎛️ **Media Control**  
-  Toggle mic, kamera, dan switch kamera
-
-- 🔌 **Abstraction Layer (Media + Signaling)**  
-  Mudah swap LiveKit / signaling tanpa ubah core logic
-
-- 📜 **Structured Logging**  
-  Logging lifecycle dan event untuk debugging
-
----
-
-## 🏗️ Architecture Overview
-
-SDK menggunakan layered architecture:
-
-
-SDK / UI
-↓
-Application (light orchestration)
-↓
-CallEngine (core logic & state machine)
-↓
-Infrastructure (LiveKit / Signaling)
-
-
----
-
-## ⚙️ Prerequisites
-
-Pastikan sudah memiliki:
-
-1. Flutter SDK (disarankan versi terbaru)
-2. Server LiveKit:
-   - LiveKit Cloud, atau
-   - Self-hosted LiveKit
-3. Credentials:
-   - LiveKit URL (wss)
-   - Access Token
-
----
-
-## 📱 Platform Setup
-
-### Android
-
-Tambahkan permission di:
-`android/app/src/main/AndroidManifest.xml`
-
-```xml
-<uses-permission android:name="android.permission.CAMERA" />
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-<uses-permission android:name="android.permission.INTERNET" />
-🍏 iOS
-
-Tambahkan di:
-ios/Runner/Info.plist
-
-<key>NSCameraUsageDescription</key>
-<string>Aplikasi membutuhkan akses kamera untuk video call</string>
-
-<key>NSMicrophoneUsageDescription</key>
-<string>Aplikasi membutuhkan akses mikrofon untuk voice call</string>
-📦 Installation
-
-Tambahkan dependency:
-
+```yaml
 dependencies:
-  flutter:
-    sdk: flutter
-  livekit_client: ^2.0.0
+  sdk_connect:
+    git:
+      url: https://github.com/kodenatan17/sdk-connect.git
+```
 
-Lalu jalankan:
+Then run:
 
+```bash
 flutter pub get
-🚀 Quick Start
-1. Connect ke Room
-final room = Room();
+```
 
-await room.connect(
-  'wss://your-livekit-url',
-  'YOUR_ACCESS_TOKEN',
+## Example Usage
+
+The sample app is available in the `example/` folder with this structure:
+
+```text
+example/
+  main.dart
+  app.dart
+  call_screen.dart
+  incoming_call_screen.dart
+  sdk_setup.dart
+```
+
+### How To Run
+
+1. Use runtime values (do not hardcode secrets in source files).
+2. Start a Flutter app that uses these `example/` files as entry source.
+3. Run with `dart-define`:
+
+```bash
+flutter run \
+  --dart-define=SDK_CONNECT_ROOM_URL=wss://your-livekit-url \
+  --dart-define=SDK_CONNECT_ACCESS_TOKEN=your-short-lived-token
+```
+
+### Flow: Init -> Call -> End
+
+1. Initialize SDK scope:
+
+```dart
+const setup = SdkSetup();
+final scope = await setup.initialize();
+final controller = scope.createVoiceCallController();
+```
+
+2. Start outgoing call:
+
+```dart
+await controller.startOutgoing(
+  callId: 'call-123',
+  peerId: 'peer-b',
+  roomUrl: roomUrl,
+  token: token,
 );
-2. Enable Media
-await room.localParticipant.setMicrophoneEnabled(true);
-await room.localParticipant.setCameraEnabled(true);
-3. Render Video
-VideoTrackRenderer(track);
-4. Disconnect
-await room.disconnect();
-🔁 Call Lifecycle (Engine)
+```
 
-Lifecycle dikelola oleh CallEngine:
+When remote side accepts (via signaling), transition to connected through your
+application/controller event handling.
 
-idle
- → calling
- → ringing
- → connecting
- → connected
- → ended
+3. Receive incoming call and accept:
 
-Engine memastikan:
+```dart
+setup.simulateIncomingForDemo(
+  scope: scope,
+  callId: 'call-456',
+  peerId: 'peer-a',
+);
 
-state tidak lompat
-tidak ada race condition
-satu call aktif dalam satu waktu
-📜 Logging
+await controller.acceptIncoming(
+  roomUrl: roomUrl,
+  token: token,
+);
+```
 
-SDK menyediakan logging untuk:
+4. In-call controls (mute, speaker, end):
 
-state transition
-signaling event
-media event
-error
+```dart
+await controller.toggleMute();
+await controller.toggleSpeaker();
+await controller.endCall(reason: 'ended_by_user');
+```
 
-Disarankan untuk menghubungkan ke logger aplikasi (Crashlytics / custom logger)
+### Key Snippets
 
-📁 Example
+- SDK init only:
 
-Cek folder:
-/example
+```dart
+final scope = SdkConnectScope.liveKit();
+```
 
-Untuk implementasi:
+- Incoming UI + in-call UI integration:
 
-UI call screen
-event handling
-video grid
-🤝 Contribution
+```dart
+if (controller.callState.phase == CallPhase.ringing) {
+  return IncomingCallScreen(...);
+}
 
-Kontribusi terbuka:
+return VoiceCallScreen(
+  controller: controller,
+  onEnd: () => controller.endCall(),
+);
+```
 
-buka issue
-submit pull request
-diskusi improvement
-📄 License
+- P2P enforcement handling:
 
-MIT License
+```dart
+try {
+  await controller.acceptIncoming(roomUrl: roomUrl, token: token);
+} on P2PLimitExceededException {
+  // Room has more than 2 participants.
+}
+```
+
+## Notes
+
+- Always validate token and room URL before starting or accepting a call.
+- Use short-lived backend-issued access tokens at runtime only.
+- Validate incoming signaling events (sender/session ownership) before driving call actions.
+- Do not bypass SDK abstractions by using LiveKit directly in UI/application code.
+- Group call is intentionally rejected by design (P2P only).
+
+## License
+
+MIT
