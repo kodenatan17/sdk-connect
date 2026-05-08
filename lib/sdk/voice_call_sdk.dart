@@ -44,6 +44,8 @@ enum VoiceCallSignalType {
   accept,
   reject,
   end,
+  recover,
+  iceRestart,
 }
 
 class VoiceCallSignal {
@@ -101,6 +103,12 @@ enum VoiceCallConnectionEventType {
   dialing,
   ringing,
   connected,
+  reconnecting,
+  recovered,
+  iceRecoveryStarted,
+  iceRecovered,
+  networkDegraded,
+  networkRecovered,
   ended,
   idle,
 }
@@ -118,6 +126,9 @@ class VoiceCallConnectionEvent {
 enum VoiceCallTokenEventType {
   requested,
   resolved,
+  refreshRequested,
+  refreshed,
+  refreshFailed,
   failed,
 }
 
@@ -126,11 +137,13 @@ class VoiceCallTokenEvent {
     required this.type,
     required this.request,
     this.error,
+    this.reconnectAttempt,
   });
 
   final VoiceCallTokenEventType type;
   final VoiceCallTokenRequest request;
   final Object? error;
+  final int? reconnectAttempt;
 }
 
 class VoiceCallErrorEvent {
@@ -205,12 +218,26 @@ class VoiceCallSdk {
     VoiceCallCallbacks callbacks = const VoiceCallCallbacks(),
     StructuredLogger? logger,
     DateTime Function()? clock,
+    CallReconnectPolicy reconnectPolicy = const CallReconnectPolicy(),
+    CallNetworkThresholds networkThresholds = const CallNetworkThresholds(),
   }) {
     final resolvedSignaling = signaling ?? InMemoryVoiceCallSignalingTransport();
     final callEngine = CallEngine(
       mediaEngine: createLiveKitMediaEngine(),
       logger: logger,
       clock: clock,
+      reconnectPolicy: reconnectPolicy,
+      networkThresholds: networkThresholds,
+      tokenRefresher: (session, reconnectAttempt) async {
+        final credentials = await tokenProvider(
+          VoiceCallTokenRequest(
+            callId: session.callId,
+            peerId: session.peerId,
+            direction: session.direction,
+          ),
+        );
+        return credentials.token;
+      },
     );
 
     return VoiceCallSdk._owned(
@@ -234,6 +261,7 @@ class VoiceCallSdk {
 
   StreamSubscription<CallState>? _stateSubscription;
   StreamSubscription<VoiceCallSignal>? _signalSubscription;
+  StreamSubscription<CallEngineEvent>? _engineEventSubscription;
 
   bool _isInitialized = false;
   bool _isDisposed = false;
@@ -268,6 +296,7 @@ class VoiceCallSdk {
 
     _stateSubscription = _callEngine.states.listen(_handleStateChanged);
     _signalSubscription = _signaling.signals.listen(_handleSignal);
+    _engineEventSubscription = _callEngine.events.listen(_handleEngineEvent);
 
     _isInitialized = true;
 
@@ -470,6 +499,7 @@ class VoiceCallSdk {
     }
     await _stateSubscription?.cancel();
     await _signalSubscription?.cancel();
+    await _engineEventSubscription?.cancel();
     if (_ownsSignaling) {
       await _signaling.dispose();
     }
@@ -555,10 +585,48 @@ class VoiceCallSdk {
           await _onReject(signal);
         case VoiceCallSignalType.end:
           await _onEnd(signal);
+        case VoiceCallSignalType.recover:
+          _onRecover(signal);
+        case VoiceCallSignalType.iceRestart:
+          _onIceRestart(signal);
       }
     } catch (error, stackTrace) {
       _emitError('signal.${signal.type.name}', error, stackTrace);
     }
+  }
+
+  void _onRecover(VoiceCallSignal signal) {
+    final session = _callEngine.state.session;
+    if (session == null) {
+      return;
+    }
+    if (session.callId != signal.callId || session.peerId != signal.fromUserId) {
+      return;
+    }
+
+    _callbacks.onConnection?.call(
+      VoiceCallConnectionEvent(
+        type: VoiceCallConnectionEventType.reconnecting,
+        state: _callEngine.state,
+      ),
+    );
+  }
+
+  void _onIceRestart(VoiceCallSignal signal) {
+    final session = _callEngine.state.session;
+    if (session == null) {
+      return;
+    }
+    if (session.callId != signal.callId || session.peerId != signal.fromUserId) {
+      return;
+    }
+
+    _callbacks.onConnection?.call(
+      VoiceCallConnectionEvent(
+        type: VoiceCallConnectionEventType.iceRecoveryStarted,
+        state: _callEngine.state,
+      ),
+    );
   }
 
   Future<void> _onInvite(VoiceCallSignal signal) async {
@@ -703,6 +771,142 @@ class VoiceCallSdk {
     );
   }
 
+  Future<void> _handleEngineEvent(CallEngineEvent event) async {
+    if (_isDisposed) {
+      return;
+    }
+
+    final session = _callEngine.state.session;
+    switch (event.type) {
+      case CallEngineEventType.reconnecting:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.reconnecting,
+            state: _callEngine.state,
+          ),
+        );
+        if (session != null) {
+          unawaited(
+            _signaling.send(
+              VoiceCallSignal(
+                type: VoiceCallSignalType.recover,
+                callId: session.callId,
+                fromUserId: _localUserId,
+                toUserId: session.peerId,
+                callType: session.callType,
+                reason: event.reason,
+              ),
+            ),
+          );
+        }
+      case CallEngineEventType.recovered:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.recovered,
+            state: _callEngine.state,
+          ),
+        );
+      case CallEngineEventType.reconnectFailed:
+        _emitError(
+          'reconnect.failed',
+          StateError('Reconnect failed: ${event.reason ?? 'unknown'}'),
+          null,
+        );
+      case CallEngineEventType.iceRecoveryStarted:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.iceRecoveryStarted,
+            state: _callEngine.state,
+          ),
+        );
+        if (session != null) {
+          unawaited(
+            _signaling.send(
+              VoiceCallSignal(
+                type: VoiceCallSignalType.iceRestart,
+                callId: session.callId,
+                fromUserId: _localUserId,
+                toUserId: session.peerId,
+                callType: session.callType,
+                reason: event.reason,
+              ),
+            ),
+          );
+        }
+      case CallEngineEventType.iceRecovered:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.iceRecovered,
+            state: _callEngine.state,
+          ),
+        );
+      case CallEngineEventType.networkDegraded:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.networkDegraded,
+            state: _callEngine.state,
+          ),
+        );
+      case CallEngineEventType.networkRecovered:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.networkRecovered,
+            state: _callEngine.state,
+          ),
+        );
+      case CallEngineEventType.audioPriorityEnabled:
+      case CallEngineEventType.audioPriorityDisabled:
+        // Audio priority state is reflected through CallState.
+        break;
+      case CallEngineEventType.tokenRefreshRequested:
+        if (session == null) {
+          return;
+        }
+        _callbacks.onToken?.call(
+          VoiceCallTokenEvent(
+            type: VoiceCallTokenEventType.refreshRequested,
+            request: VoiceCallTokenRequest(
+              callId: session.callId,
+              peerId: session.peerId,
+              direction: session.direction,
+            ),
+            reconnectAttempt: event.reconnectAttempt,
+          ),
+        );
+      case CallEngineEventType.tokenRefreshed:
+        if (session == null) {
+          return;
+        }
+        _callbacks.onToken?.call(
+          VoiceCallTokenEvent(
+            type: VoiceCallTokenEventType.refreshed,
+            request: VoiceCallTokenRequest(
+              callId: session.callId,
+              peerId: session.peerId,
+              direction: session.direction,
+            ),
+            reconnectAttempt: event.reconnectAttempt,
+          ),
+        );
+      case CallEngineEventType.tokenRefreshFailed:
+        if (session == null) {
+          return;
+        }
+        _callbacks.onToken?.call(
+          VoiceCallTokenEvent(
+            type: VoiceCallTokenEventType.refreshFailed,
+            request: VoiceCallTokenRequest(
+              callId: session.callId,
+              peerId: session.peerId,
+              direction: session.direction,
+            ),
+            error: event.error,
+            reconnectAttempt: event.reconnectAttempt,
+          ),
+        );
+    }
+  }
+
   void _ensureReady(String action) {
     _ensureNotDisposed(action);
     if (!_isInitialized || _localUserId.isEmpty) {
@@ -733,7 +937,7 @@ class VoiceCallSdk {
   }
 
   String _signalKey(VoiceCallSignal signal) {
-    return '${signal.type.name}|${signal.callId}|${signal.fromUserId}|${signal.toUserId}|${signal.callType.name}|${signal.reason ?? ''}';
+    return '${signal.type.name}|${signal.callId}|${signal.fromUserId}|${signal.toUserId}|${signal.callType.name}';
   }
 }
 

@@ -1,5 +1,5 @@
 {
-  "feature": "SDKConnect voice-video facade split with CallEngine SSOT callType propagation and accept mismatch guards",
+  "feature": "production-grade reliability for SDKConnect (auto reconnect, ICE recovery hook, silent token refresh hook, adaptive audio-priority fallback, configurable network thresholds, reconnect/recovered/token events)",
   "keys": [
     "ARCH_CALL_ENGINE_LIFECYCLE_V1",
     "RULE_SDK_ONLY_USAGE_V1",
@@ -18,7 +18,9 @@
     "SEC_SIGNAL_REJECT_EMITS_ERROR_V1",
     "SEC_ACCEPT_CALLTYPE_MISMATCH_GUARD_V1",
     "TEST_COVERAGE_V2",
-    "TEST_CALLTYPE_GUARDS_V1"
+    "TEST_CALLTYPE_GUARDS_V1",
+    "ARCH_PRODUCTION_RELIABILITY_SDKCONNECT_V1",
+    "SEC_SILENT_TOKEN_REFRESH_HOOK_V1"
   ],
   "constraints_preserved": [
     "CallEngine lifecycle",
@@ -32,14 +34,16 @@
     "Facade split preserves a single CallEngine authority",
     "Accept flows fail fast on callType mismatches"
   ],
-  "agents": ["joko-builder", "senior-reviewer", "pakpol-security"],
-  "skills": ["flutter-architecture-skill"],
+  "agents": ["solo-orchestrator", "mbg-memory-system", "senior-reviewer", "pakpol-security"],
+  "skills": ["flutter-architecture-skill", "call-engine-skill", "realtime-signaling-skill", "media-engine-skill", "realtime-security-skill"],
   "outcome": "success",
   "verified_facts": [
-    "SDKConnect now separates public voice/video facade concerns while keeping CallEngine as the single source of truth",
-    "Facade entrypoints propagate explicit callType into CallEngine for lifecycle and media decisions",
-    "acceptCall guards reject mismatched callType before connection side effects",
-    "Previously preserved video, JWT expiry, and signal rejection protections remain intact"
+    "SDKConnect reliability flow supports automatic reconnect orchestration",
+    "ICE recovery integration is available as a dedicated recovery hook",
+    "Silent token refresh is supported through a non-disruptive refresh hook",
+    "Adaptive audio-priority fallback can preserve continuity during degraded network conditions",
+    "Network quality thresholds are configurable for deployment tuning",
+    "Reconnect, recovered, and token lifecycle events are available for consumer observability"
   ],
-  "round": 6
+  "round": 7
 }

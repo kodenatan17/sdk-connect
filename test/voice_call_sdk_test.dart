@@ -219,6 +219,19 @@ class _FakeMediaEngine implements MediaEngine {
   }
 
   @override
+  Future<void> restartIce() async {}
+
+  @override
+  Future<void> updateToken(String token) async {}
+
+  @override
+  Future<void> setConnectionProfile(MediaConnectionProfile profile) async {
+    if (profile.preferAudio) {
+      _isVideoEnabled = false;
+    }
+  }
+
+  @override
   Future<void> dispose() async {
     _connected = false;
     _isMuted = false;

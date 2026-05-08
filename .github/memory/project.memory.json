@@ -135,5 +135,24 @@
       "Tests verify callType propagates through SDKConnect facade into CallEngine",
       "Tests verify acceptCall rejects mismatched callType before connection side effects"
     ]
+  },
+  "ARCH_PRODUCTION_RELIABILITY_SDKCONNECT_V1": {
+    "description": "SDKConnect reliability layer supports resilient real-time calling under fluctuating network conditions",
+    "rules": [
+      "CallEngine supports automatic reconnect orchestration after transient disconnects",
+      "ICE recovery hook is available to trigger transport/path recovery workflows",
+      "Silent token refresh hook can renew auth without forcing user-visible teardown",
+      "Adaptive audio-priority fallback can degrade media strategy to preserve call continuity",
+      "Network quality thresholds are configurable and not hard-coded",
+      "Reconnect, recovered, and token lifecycle events are surfaced to consumers"
+    ]
+  },
+  "SEC_SILENT_TOKEN_REFRESH_HOOK_V1": {
+    "description": "Token rotation path is designed for uninterrupted sessions",
+    "rules": [
+      "Token refresh hooks must avoid exposing raw token values in logs/events",
+      "Refresh failures emit explicit lifecycle events for caller-controlled handling",
+      "Recovered auth state must revalidate connect preconditions before media escalation"
+    ]
   }
 }

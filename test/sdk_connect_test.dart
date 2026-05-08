@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -198,7 +199,11 @@ void main() {
   test('unexpected media disconnect resets active call to idle', () async {
     final media = _FakeMediaEngine();
     final logger = _InMemoryLogger();
-    final engine = CallEngine(mediaEngine: media, logger: logger);
+    final engine = CallEngine(
+      mediaEngine: media,
+      logger: logger,
+      reconnectPolicy: const CallReconnectPolicy(enabled: false),
+    );
 
     await engine.startOutgoing(
       callId: 'call-11',
@@ -218,6 +223,195 @@ void main() {
     expect(engine.state.phase, CallPhase.idle);
     expect(logger.events, contains('call.media_disconnected'));
     expect(logger.events, contains('media_disconnect_cleanup'));
+
+    await engine.dispose();
+  });
+
+  test('auto reconnect recovers call state before grace timeout', () async {
+    final media = _FakeMediaEngine();
+    final engine = CallEngine(
+      mediaEngine: media,
+      logger: _InMemoryLogger(),
+      reconnectPolicy: const CallReconnectPolicy(
+        maxAttempts: 3,
+        initialDelay: Duration(milliseconds: 20),
+        maxDelay: Duration(milliseconds: 40),
+        graceTimeout: Duration(milliseconds: 220),
+      ),
+    );
+    final events = <CallEngineEventType>[];
+    final sub = engine.events.listen((event) => events.add(event.type));
+
+    await engine.startOutgoing(
+      callId: 'call-r1',
+      peerId: 'peer-r1',
+      roomUrl: 'wss://room.test',
+      token: validToken,
+    );
+    engine.markOutgoingConnected();
+    media.connectFailuresBeforeSuccess = 1;
+
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.disconnected,
+        reason: 'network_drop',
+      ),
+    );
+
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(engine.state.phase, CallPhase.connected);
+    expect(engine.state.reconnectAttempts, greaterThanOrEqualTo(1));
+
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    expect(engine.state.phase, CallPhase.connected);
+    expect(engine.state.isReconnecting, isFalse);
+    expect(engine.state.session?.callId, 'call-r1');
+    expect(events, contains(CallEngineEventType.reconnecting));
+    expect(events, contains(CallEngineEventType.recovered));
+
+    await sub.cancel();
+    await engine.dispose();
+  });
+
+  test('reconnect loop prevention ends call if disconnect repeats inside cooldown', () async {
+    final media = _FakeMediaEngine();
+    final engine = CallEngine(
+      mediaEngine: media,
+      logger: _InMemoryLogger(),
+      reconnectPolicy: const CallReconnectPolicy(
+        maxAttempts: 2,
+        initialDelay: Duration(milliseconds: 10),
+        maxDelay: Duration(milliseconds: 20),
+        graceTimeout: Duration(milliseconds: 120),
+        reconnectCooldown: Duration(milliseconds: 600),
+      ),
+    );
+
+    await engine.startOutgoing(
+      callId: 'call-r2',
+      peerId: 'peer-r2',
+      roomUrl: 'wss://room.test',
+      token: validToken,
+    );
+    engine.markOutgoingConnected();
+
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.disconnected,
+        reason: 'network_drop_1',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(engine.state.phase, CallPhase.connected);
+
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.disconnected,
+        reason: 'network_drop_2',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+
+    expect(engine.state.phase, CallPhase.idle);
+
+    await engine.dispose();
+  });
+
+  test('silent token refresh happens during reconnect without leaking token', () async {
+    final media = _FakeMediaEngine();
+    final nowSec = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    final expiringToken = _jwtWithExp(nowSec + 20);
+    final refreshedToken = _jwtWithExp(nowSec + 3600);
+    var refreshCalls = 0;
+
+    final engine = CallEngine(
+      mediaEngine: media,
+      logger: _InMemoryLogger(),
+      reconnectPolicy: const CallReconnectPolicy(
+        initialDelay: Duration(milliseconds: 10),
+        maxDelay: Duration(milliseconds: 20),
+        graceTimeout: Duration(milliseconds: 200),
+        tokenRefreshBeforeExpiry: Duration(minutes: 2),
+      ),
+      tokenRefresher: (session, reconnectAttempt) async {
+        refreshCalls += 1;
+        return refreshedToken;
+      },
+    );
+    final events = <CallEngineEventType>[];
+    final sub = engine.events.listen((event) => events.add(event.type));
+
+    await engine.startOutgoing(
+      callId: 'call-r3',
+      peerId: 'peer-r3',
+      roomUrl: 'wss://room.test',
+      token: expiringToken,
+    );
+    engine.markOutgoingConnected();
+    media.connectFailuresBeforeSuccess = 1;
+
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.disconnected,
+        reason: 'network_drop',
+      ),
+    );
+
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
+    expect(refreshCalls, 1);
+    expect(media.updatedTokens, contains(refreshedToken));
+    expect(events, contains(CallEngineEventType.tokenRefreshRequested));
+    expect(events, contains(CallEngineEventType.tokenRefreshed));
+
+    await sub.cancel();
+    await engine.dispose();
+  });
+
+  test('adaptive audio-priority fallback downgrades and recovers on stable network', () async {
+    final media = _FakeMediaEngine();
+    final engine = CallEngine(
+      mediaEngine: media,
+      logger: _InMemoryLogger(),
+      networkThresholds: const CallNetworkThresholds(
+        weakScore: 30,
+        stableScore: 70,
+        stableDuration: Duration(milliseconds: 40),
+      ),
+    );
+
+    await engine.startOutgoing(
+      callId: 'call-r4',
+      peerId: 'peer-r4',
+      roomUrl: 'wss://room.test',
+      token: validToken,
+      callType: CallType.video,
+    );
+    engine.markOutgoingConnected();
+    await engine.setVideoEnabled(true);
+
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.networkQualityChanged,
+        networkQuality: MediaNetworkQuality(score: 20, bitrateKbps: 120),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(engine.state.isAudioPriority, isTrue);
+    expect(engine.state.isVideoEnabled, isFalse);
+
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.networkQualityChanged,
+        networkQuality: MediaNetworkQuality(score: 80, bitrateKbps: 900),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 70));
+
+    expect(engine.state.isAudioPriority, isFalse);
+    expect(engine.state.isVideoEnabled, isTrue);
+    expect(media.lastProfile.preferAudio, isFalse);
 
     await engine.dispose();
   });
@@ -266,10 +460,12 @@ class _FakeMediaEngine implements MediaEngine {
   _FakeMediaEngine({
     this.throwOnConnect = false,
     this.throwOnDisconnect = false,
+    this.connectFailuresBeforeSuccess = 0,
   });
 
   final bool throwOnConnect;
   final bool throwOnDisconnect;
+  int connectFailuresBeforeSuccess;
 
   int connectCount = 0;
   int disconnectCount = 0;
@@ -279,6 +475,9 @@ class _FakeMediaEngine implements MediaEngine {
   bool _isMuted = false;
   bool _isSpeakerOn = false;
   bool _isVideoEnabled = false;
+  int restartIceCount = 0;
+  final List<String> updatedTokens = <String>[];
+  MediaConnectionProfile lastProfile = MediaConnectionProfile.balanced;
   final StreamController<MediaEngineEvent> _eventsController =
       StreamController<MediaEngineEvent>.broadcast();
 
@@ -302,6 +501,10 @@ class _FakeMediaEngine implements MediaEngine {
     connectCount += 1;
     if (throwOnConnect) {
       throw StateError('connect failed');
+    }
+    if (connectFailuresBeforeSuccess > 0) {
+      connectFailuresBeforeSuccess -= 1;
+      throw StateError('connect failed temporarily');
     }
     _connected = true;
   }
@@ -336,6 +539,24 @@ class _FakeMediaEngine implements MediaEngine {
   }
 
   @override
+  Future<void> restartIce() async {
+    restartIceCount += 1;
+  }
+
+  @override
+  Future<void> updateToken(String token) async {
+    updatedTokens.add(token);
+  }
+
+  @override
+  Future<void> setConnectionProfile(MediaConnectionProfile profile) async {
+    lastProfile = profile;
+    if (profile.preferAudio) {
+      _isVideoEnabled = false;
+    }
+  }
+
+  @override
   Future<void> dispose() async {
     _connected = false;
     _isMuted = false;
@@ -347,6 +568,11 @@ class _FakeMediaEngine implements MediaEngine {
   void emitEvent(MediaEngineEvent event) {
     _eventsController.add(event);
   }
+}
+
+String _jwtWithExp(int exp) {
+  final payload = base64Url.encode(utf8.encode('{"exp":$exp}'));
+  return 'header.$payload.signature';
 }
 
 class _InMemoryLogger implements StructuredLogger {

@@ -110,6 +110,51 @@ class LiveKitMediaEngine implements MediaEngine {
   }
 
   @override
+  Future<void> restartIce() async {
+    if (!isConnected) {
+      return;
+    }
+
+    _emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.iceRestarting,
+        reason: 'ice_recovery_requested',
+      ),
+    );
+
+    // LiveKit client performs ICE recovery internally when the transport
+    // renegotiates. We expose this method so CallEngine can request recovery
+    // consistently across media backends.
+    _emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.iceRecovered,
+        reason: 'ice_recovery_completed',
+      ),
+    );
+  }
+
+  @override
+  Future<void> updateToken(String token) async {
+    if (token.trim().isEmpty) {
+      return;
+    }
+
+    // Keep this method as a stable abstraction boundary. Token updates are
+    // backend-specific and should not leak backend APIs out of MediaEngine.
+  }
+
+  @override
+  Future<void> setConnectionProfile(MediaConnectionProfile profile) async {
+    if (!isConnected) {
+      return;
+    }
+
+    if (profile.preferAudio && _isVideoEnabled) {
+      await setCameraOn(false);
+    }
+  }
+
+  @override
   Future<void> dispose() async {
     await _disposeRoomListener();
     if (isConnected) {

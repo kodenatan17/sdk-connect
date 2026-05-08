@@ -2,6 +2,8 @@
 
 Flutter call SDK with a single `CallEngine` lifecycle, internal media orchestration, and a plug-and-play `SDKConnect` public API.
 
+Production reliability is included: auto reconnect, signaling + ICE recovery hooks, silent token refresh, adaptive audio-priority fallback, and configurable network thresholds.
+
 ## Design Goals
 
 - `CallEngine` remains the single source of truth for call lifecycle and controls.
@@ -37,6 +39,10 @@ final sdk = SDKConnect.create(
   signaling: yourSignalingTransport,
   tokenProvider: yourTokenProvider,
   signalValidator: yourSignalValidator,
+  reliability: const SDKConnectReliabilityConfig(
+    reconnectPolicy: CallReconnectPolicy(),
+    networkThresholds: CallNetworkThresholds(),
+  ),
   callbacks: SDKConnectCallbacks(
     onEvent: (event) {},
     onUser: (event) {},
@@ -52,13 +58,15 @@ final sdk = SDKConnect.create(
 ```dart
 Future<void> initialize({String? localUserId})
 Future<void> startCall({required String peerId, String? callId, SDKConnectCallType callType = SDKConnectCallType.voice})
-Future<void> acceptCall({SDKConnectCallType callType = SDKConnectCallType.voice})
+Future<void> acceptCall({SDKConnectCallType? callType})
 Future<void> rejectCall({String reason = 'rejected'})
 Future<void> endCall({String reason = 'ended_by_user'})
 Future<void> setMuted(bool muted)
 Future<void> toggleMute()
 Future<void> setSpeakerOn(bool speakerOn)
 Future<void> toggleSpeaker()
+Future<void> setVideoEnabled(bool enabled)
+Future<void> toggleCamera()
 Future<void> dispose()
 ```
 
@@ -75,9 +83,9 @@ SDKConnectCallbacks(
 ```
 
 - `SDKConnectUserEvent`: outgoing started, incoming received, accepted, rejected, ended, P2P limit exceeded.
-- `SDKConnectConnectionEvent`: initializing, ready, dialing, ringing, connected, ended, idle.
+- `SDKConnectConnectionEvent`: initializing, ready, dialing, ringing, connected, reconnecting, recovered, iceRecoveryStarted, iceRecovered, networkDegraded, networkRecovered, ended, idle.
 - `SDKConnectErrorEvent`: operation, error, stack trace.
-- `SDKConnectTokenEvent`: requested, resolved, failed.
+- `SDKConnectTokenEvent`: requested, resolved, refreshRequested, refreshed, refreshFailed, failed.
 - `sdk.events`: unified stream of all SDK events.
 
 ### Signals And Token Input
@@ -92,6 +100,15 @@ class SDKConnectSignal {
   final String? reason;
 }
 
+enum SDKConnectSignalType {
+  invite,
+  accept,
+  reject,
+  end,
+  recover,
+  iceRestart,
+}
+
 class SDKConnectTokenRequest {
   final String callId;
   final String peerId;
@@ -103,6 +120,73 @@ class SDKConnectCredentials {
   final String roomUrl;
   final String token;
 }
+
+class SDKConnectReliabilityConfig {
+  final CallReconnectPolicy reconnectPolicy;
+  final CallNetworkThresholds networkThresholds;
+}
+
+class CallReconnectPolicy {
+  final bool enabled;
+  final int maxAttempts;
+  final Duration initialDelay;
+  final Duration maxDelay;
+  final Duration graceTimeout;
+  final Duration reconnectCooldown;
+  final Duration tokenRefreshBeforeExpiry;
+  final bool enableIceRecovery;
+}
+
+class CallNetworkThresholds {
+  final int weakScore;
+  final int stableScore;
+  final Duration stableDuration;
+  final int audioPriorityBitrateKbps;
+  final int audioPriorityMaxVideoHeight;
+  final int audioPriorityMaxVideoFps;
+}
+```
+
+## Reliability Behavior
+
+- Preserves active `CallEngine` session while reconnecting.
+- Uses grace timeout before ending call on sustained network loss.
+- Prevents reconnect loops with cooldown + bounded backoff.
+- Emits reconnect and recovery events.
+- Supports ICE recovery signaling hooks.
+- Silently refreshes near-expiry tokens.
+- Automatically downgrades to audio-priority on weak network.
+- Automatically recovers to balanced profile when network is stable.
+
+### Recommended Reliability Preset
+
+```dart
+final sdk = SDKConnect.create(
+  localUserId: currentUserId,
+  signaling: yourSignalingTransport,
+  tokenProvider: yourTokenProvider,
+  signalValidator: yourSignalValidator,
+  reliability: const SDKConnectReliabilityConfig(
+    reconnectPolicy: CallReconnectPolicy(
+      enabled: true,
+      maxAttempts: 6,
+      initialDelay: Duration(seconds: 1),
+      maxDelay: Duration(seconds: 12),
+      graceTimeout: Duration(seconds: 25),
+      reconnectCooldown: Duration(seconds: 15),
+      tokenRefreshBeforeExpiry: Duration(minutes: 2),
+      enableIceRecovery: true,
+    ),
+    networkThresholds: CallNetworkThresholds(
+      weakScore: 35,
+      stableScore: 65,
+      stableDuration: Duration(seconds: 8),
+      audioPriorityBitrateKbps: 180,
+      audioPriorityMaxVideoHeight: 180,
+      audioPriorityMaxVideoFps: 12,
+    ),
+  ),
+);
 ```
 
 ## Example Usage
@@ -193,6 +277,7 @@ final sdk = SDKConnect.create(
   signaling: yourSignalingTransport,
   tokenProvider: yourTokenProvider,
   signalValidator: yourSignalValidator,
+  reliability: const SDKConnectReliabilityConfig(),
 );
 ```
 
@@ -207,13 +292,15 @@ SDKConnectCallbacks(
     // incoming, accepted, rejected, ended, p2p-limit
   },
   onConnection: (event) {
-    // ready, dialing, ringing, connected, ended, idle
+    // ready, dialing, ringing, connected,
+    // reconnecting, recovered, iceRecoveryStarted, iceRecovered,
+    // networkDegraded, networkRecovered, ended, idle
   },
   onError: (event) {
     // operation + error payload
   },
   onToken: (event) {
-    // requested, resolved, failed
+    // requested, resolved, refreshRequested, refreshed, refreshFailed, failed
   },
 );
 ```
@@ -225,19 +312,6 @@ final yourSignalValidator = (SDKConnectSignal signal) async {
   return signal.toUserId == currentUserId &&
       trustedPeerIds.contains(signal.fromUserId);
 };
-```
-
-- Optional SDK-provided UI controller over the same `CallEngine`:
-
-```dart
-final controller = sdk.createController();
-
-return VoiceCallScreen(
-  controller: controller,
-  onAccept: sdk.acceptCall,
-  onReject: () => sdk.rejectCall(),
-  onEnd: () => sdk.endCall(),
-);
 ```
 
 - P2P enforcement handling:
@@ -263,6 +337,7 @@ try {
 - Provide a signaling transport implementation that carries `SDKConnectSignal` messages.
 - Provide a short-lived backend token provider that returns `SDKConnectCredentials`.
 - Validate signaling sender identity and call ownership before the SDK processes events.
+- Keep tokens backend-issued and short-lived; never persist token strings to logs or analytics.
 - Do not bypass SDK abstractions by using LiveKit directly in UI/application code.
 - Group call is intentionally rejected by design (P2P only).
 

@@ -54,6 +54,16 @@ class SDKConnectTokenRequest {
   }
 }
 
+class SDKConnectReliabilityConfig {
+  const SDKConnectReliabilityConfig({
+    this.reconnectPolicy = const CallReconnectPolicy(),
+    this.networkThresholds = const CallNetworkThresholds(),
+  });
+
+  final CallReconnectPolicy reconnectPolicy;
+  final CallNetworkThresholds networkThresholds;
+}
+
 typedef SDKConnectTokenProvider = Future<SDKConnectCredentials> Function(
   SDKConnectTokenRequest request,
 );
@@ -67,6 +77,8 @@ enum SDKConnectSignalType {
   accept,
   reject,
   end,
+  recover,
+  iceRestart,
 }
 
 class SDKConnectSignal {
@@ -203,6 +215,12 @@ enum SDKConnectConnectionEventType {
   dialing,
   ringing,
   connected,
+  reconnecting,
+  recovered,
+  iceRecoveryStarted,
+  iceRecovered,
+  networkDegraded,
+  networkRecovered,
   ended,
   idle,
 }
@@ -227,6 +245,9 @@ class SDKConnectConnectionEvent extends SDKConnectEvent {
 enum SDKConnectTokenEventType {
   requested,
   resolved,
+  refreshRequested,
+  refreshed,
+  refreshFailed,
   failed,
 }
 
@@ -235,11 +256,13 @@ class SDKConnectTokenEvent extends SDKConnectEvent {
     required this.type,
     required this.request,
     this.error,
+    this.reconnectAttempt,
   }) : super(SDKConnectEventKind.token);
 
   final SDKConnectTokenEventType type;
   final SDKConnectTokenRequest request;
   final Object? error;
+  final int? reconnectAttempt;
 
   factory SDKConnectTokenEvent._fromVoice(
     VoiceCallTokenEvent event, {
@@ -252,6 +275,7 @@ class SDKConnectTokenEvent extends SDKConnectEvent {
         callType: callType,
       ),
       error: event.error,
+      reconnectAttempt: event.reconnectAttempt,
     );
   }
 }
@@ -347,6 +371,7 @@ class SDKConnect {
     required SDKConnectSignalValidator signalValidator,
     SDKConnectSignalingTransport? signaling,
     SDKConnectCallbacks callbacks = const SDKConnectCallbacks(),
+    SDKConnectReliabilityConfig reliability = const SDKConnectReliabilityConfig(),
     StructuredLogger? logger,
     DateTime Function()? clock,
   }) {
@@ -355,6 +380,19 @@ class SDKConnect {
       mediaEngine: createLiveKitMediaEngine(),
       logger: logger,
       clock: clock,
+      reconnectPolicy: reliability.reconnectPolicy,
+      networkThresholds: reliability.networkThresholds,
+      tokenRefresher: (session, reconnectAttempt) async {
+        final credentials = await tokenProvider(
+          SDKConnectTokenRequest(
+            callId: session.callId,
+            peerId: session.peerId,
+            direction: session.direction,
+            callType: session.callType.toPublic(),
+          ),
+        );
+        return credentials.token;
+      },
     );
 
     return SDKConnect._owned(

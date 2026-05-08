@@ -9,6 +9,10 @@ class CallState {
     required this.isMuted,
     required this.isSpeakerOn,
     required this.isVideoEnabled,
+    this.isReconnecting = false,
+    this.reconnectAttempts = 0,
+    this.networkScore,
+    this.isAudioPriority = false,
     required this.updatedAt,
   });
 
@@ -18,6 +22,10 @@ class CallState {
       isMuted: false,
       isSpeakerOn: false,
       isVideoEnabled: false,
+      isReconnecting: false,
+      reconnectAttempts: 0,
+      networkScore: null,
+      isAudioPriority: false,
       updatedAt: DateTime.now().toUtc(),
     );
   }
@@ -28,6 +36,10 @@ class CallState {
   final bool isMuted;
   final bool isSpeakerOn;
   final bool isVideoEnabled;
+  final bool isReconnecting;
+  final int reconnectAttempts;
+  final int? networkScore;
+  final bool isAudioPriority;
   final DateTime updatedAt;
 
   CallState copyWith({
@@ -37,6 +49,11 @@ class CallState {
     bool? isMuted,
     bool? isSpeakerOn,
     bool? isVideoEnabled,
+    bool? isReconnecting,
+    int? reconnectAttempts,
+    int? networkScore,
+    bool clearNetworkScore = false,
+    bool? isAudioPriority,
     DateTime? updatedAt,
     bool clearReason = false,
   }) {
@@ -47,6 +64,10 @@ class CallState {
       isMuted: isMuted ?? this.isMuted,
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
       isVideoEnabled: isVideoEnabled ?? this.isVideoEnabled,
+      isReconnecting: isReconnecting ?? this.isReconnecting,
+      reconnectAttempts: reconnectAttempts ?? this.reconnectAttempts,
+      networkScore: clearNetworkScore ? null : (networkScore ?? this.networkScore),
+      isAudioPriority: isAudioPriority ?? this.isAudioPriority,
       updatedAt: updatedAt ?? DateTime.now().toUtc(),
     );
   }
@@ -59,6 +80,10 @@ class CallState {
       'isMuted': isMuted,
       'isSpeakerOn': isSpeakerOn,
       'isVideoEnabled': isVideoEnabled,
+      'isReconnecting': isReconnecting,
+      'reconnectAttempts': reconnectAttempts,
+      'networkScore': networkScore,
+      'isAudioPriority': isAudioPriority,
       'updatedAt': updatedAt.toIso8601String(),
     };
   }
