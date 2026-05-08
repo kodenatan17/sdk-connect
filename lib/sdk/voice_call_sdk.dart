@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math';
 
+import 'package:flutter/widgets.dart';
 import 'package:sdk_connect/core/enums/call_direction.dart';
 import 'package:sdk_connect/core/enums/call_phase.dart';
 import 'package:sdk_connect/core/enums/call_type.dart';
@@ -100,9 +102,14 @@ class VoiceCallUserEvent {
 enum VoiceCallConnectionEventType {
   initializing,
   ready,
+  lifecycleChanged,
   dialing,
   ringing,
   connected,
+  interruptionStarted,
+  interruptionRecovered,
+  mediaSessionRestored,
+  audioRouteChanged,
   reconnecting,
   recovered,
   iceRecoveryStarted,
@@ -172,7 +179,7 @@ class VoiceCallCallbacks {
   final void Function(VoiceCallTokenEvent event)? onToken;
 }
 
-class VoiceCallSdk {
+class VoiceCallSdk with WidgetsBindingObserver {
   VoiceCallSdk({
     required String localUserId,
     required CallEngine callEngine,
@@ -265,7 +272,10 @@ class VoiceCallSdk {
 
   bool _isInitialized = false;
   bool _isDisposed = false;
+  bool _isLifecycleObserverRegistered = false;
+  static const int _maxProcessedSignalKeys = 512;
   final Set<String> _processedSignalKeys = <String>{};
+  final Queue<String> _processedSignalOrder = Queue<String>();
   final String _localUserId;
 
   CallState get state => _callEngine.state;
@@ -286,6 +296,8 @@ class VoiceCallSdk {
     if (_isInitialized) {
       return;
     }
+
+    _registerLifecycleObserver();
 
     _callbacks.onConnection?.call(
       VoiceCallConnectionEvent(
@@ -500,11 +512,45 @@ class VoiceCallSdk {
     await _stateSubscription?.cancel();
     await _signalSubscription?.cancel();
     await _engineEventSubscription?.cancel();
+    _unregisterLifecycleObserver();
     if (_ownsSignaling) {
       await _signaling.dispose();
     }
     if (_ownsEngine) {
       await _callEngine.dispose();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_isDisposed) {
+      return;
+    }
+    unawaited(_callEngine.onAppLifecycleChanged(state.toEngineLifecycleState()));
+  }
+
+  void _registerLifecycleObserver() {
+    if (_isLifecycleObserverRegistered) {
+      return;
+    }
+    try {
+      WidgetsBinding.instance.addObserver(this);
+      _isLifecycleObserverRegistered = true;
+    } catch (_) {
+      _isLifecycleObserverRegistered = false;
+    }
+  }
+
+  void _unregisterLifecycleObserver() {
+    if (!_isLifecycleObserverRegistered) {
+      return;
+    }
+    try {
+      WidgetsBinding.instance.removeObserver(this);
+    } catch (_) {
+      // Binding may already be torn down.
+    } finally {
+      _isLifecycleObserverRegistered = false;
     }
   }
 
@@ -573,6 +619,11 @@ class VoiceCallSdk {
     final signalKey = _signalKey(signal);
     if (!_processedSignalKeys.add(signalKey)) {
       return;
+    }
+    _processedSignalOrder.addLast(signalKey);
+    while (_processedSignalOrder.length > _maxProcessedSignalKeys) {
+      final expiredKey = _processedSignalOrder.removeFirst();
+      _processedSignalKeys.remove(expiredKey);
     }
 
     try {
@@ -734,6 +785,11 @@ class VoiceCallSdk {
       return;
     }
 
+    if (state.phase == CallPhase.idle) {
+      _processedSignalKeys.clear();
+      _processedSignalOrder.clear();
+    }
+
     final connectionType = switch (state.phase) {
       CallPhase.idle => VoiceCallConnectionEventType.idle,
       CallPhase.dialing => VoiceCallConnectionEventType.dialing,
@@ -778,6 +834,46 @@ class VoiceCallSdk {
 
     final session = _callEngine.state.session;
     switch (event.type) {
+      case CallEngineEventType.lifecycleChanged:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.lifecycleChanged,
+            state: _callEngine.state,
+          ),
+        );
+        return;
+      case CallEngineEventType.interruptionStarted:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.interruptionStarted,
+            state: _callEngine.state,
+          ),
+        );
+        return;
+      case CallEngineEventType.interruptionRecovered:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.interruptionRecovered,
+            state: _callEngine.state,
+          ),
+        );
+        return;
+      case CallEngineEventType.mediaSessionRestored:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.mediaSessionRestored,
+            state: _callEngine.state,
+          ),
+        );
+        return;
+      case CallEngineEventType.audioRouteChanged:
+        _callbacks.onConnection?.call(
+          VoiceCallConnectionEvent(
+            type: VoiceCallConnectionEventType.audioRouteChanged,
+            state: _callEngine.state,
+          ),
+        );
+        return;
       case CallEngineEventType.reconnecting:
         _callbacks.onConnection?.call(
           VoiceCallConnectionEvent(
@@ -799,6 +895,7 @@ class VoiceCallSdk {
             ),
           );
         }
+        return;
       case CallEngineEventType.recovered:
         _callbacks.onConnection?.call(
           VoiceCallConnectionEvent(
@@ -806,12 +903,14 @@ class VoiceCallSdk {
             state: _callEngine.state,
           ),
         );
+        return;
       case CallEngineEventType.reconnectFailed:
         _emitError(
           'reconnect.failed',
           StateError('Reconnect failed: ${event.reason ?? 'unknown'}'),
           null,
         );
+        return;
       case CallEngineEventType.iceRecoveryStarted:
         _callbacks.onConnection?.call(
           VoiceCallConnectionEvent(
@@ -833,6 +932,7 @@ class VoiceCallSdk {
             ),
           );
         }
+        return;
       case CallEngineEventType.iceRecovered:
         _callbacks.onConnection?.call(
           VoiceCallConnectionEvent(
@@ -840,6 +940,7 @@ class VoiceCallSdk {
             state: _callEngine.state,
           ),
         );
+        return;
       case CallEngineEventType.networkDegraded:
         _callbacks.onConnection?.call(
           VoiceCallConnectionEvent(
@@ -847,6 +948,7 @@ class VoiceCallSdk {
             state: _callEngine.state,
           ),
         );
+        return;
       case CallEngineEventType.networkRecovered:
         _callbacks.onConnection?.call(
           VoiceCallConnectionEvent(
@@ -854,10 +956,11 @@ class VoiceCallSdk {
             state: _callEngine.state,
           ),
         );
+        return;
       case CallEngineEventType.audioPriorityEnabled:
       case CallEngineEventType.audioPriorityDisabled:
         // Audio priority state is reflected through CallState.
-        break;
+        return;
       case CallEngineEventType.tokenRefreshRequested:
         if (session == null) {
           return;
@@ -873,6 +976,7 @@ class VoiceCallSdk {
             reconnectAttempt: event.reconnectAttempt,
           ),
         );
+        return;
       case CallEngineEventType.tokenRefreshed:
         if (session == null) {
           return;
@@ -888,6 +992,7 @@ class VoiceCallSdk {
             reconnectAttempt: event.reconnectAttempt,
           ),
         );
+        return;
       case CallEngineEventType.tokenRefreshFailed:
         if (session == null) {
           return;
@@ -904,6 +1009,7 @@ class VoiceCallSdk {
             reconnectAttempt: event.reconnectAttempt,
           ),
         );
+        return;
     }
   }
 
@@ -964,5 +1070,17 @@ class InMemoryVoiceCallSignalingTransport implements VoiceCallSignalingTransport
       return;
     }
     await _controller.close();
+  }
+}
+
+extension on AppLifecycleState {
+  CallAppLifecycleState toEngineLifecycleState() {
+    return switch (this) {
+      AppLifecycleState.resumed => CallAppLifecycleState.resumed,
+      AppLifecycleState.inactive => CallAppLifecycleState.inactive,
+      AppLifecycleState.hidden => CallAppLifecycleState.hidden,
+      AppLifecycleState.paused => CallAppLifecycleState.paused,
+      AppLifecycleState.detached => CallAppLifecycleState.detached,
+    };
   }
 }

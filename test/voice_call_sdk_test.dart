@@ -140,6 +140,45 @@ void main() {
     await sdk.dispose();
     await engine.dispose();
   });
+
+  test('sdk forwards lifecycle and interruption recovery connection events', () async {
+    final media = _FakeMediaEngine();
+    final signaling = _FakeSignalingTransport();
+    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
+
+    final connectionEvents = <VoiceCallConnectionEventType>[];
+    final sdk = VoiceCallSdk(
+      localUserId: 'user-a',
+      callEngine: engine,
+      signaling: signaling,
+      tokenProvider: (_) async => validCredentials,
+      signalValidator: (_) async => true,
+      callbacks: VoiceCallCallbacks(
+        onConnection: (event) => connectionEvents.add(event.type),
+      ),
+    );
+
+    await sdk.startCall(peerId: 'user-b', callId: 'call-4');
+    signaling.pushIncoming(
+      const VoiceCallSignal(
+        type: VoiceCallSignalType.accept,
+        callId: 'call-4',
+        fromUserId: 'user-b',
+        toUserId: 'user-a',
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    await engine.onAppLifecycleChanged(CallAppLifecycleState.paused);
+    await engine.onAppLifecycleChanged(CallAppLifecycleState.resumed);
+
+    expect(connectionEvents, contains(VoiceCallConnectionEventType.lifecycleChanged));
+    expect(connectionEvents, contains(VoiceCallConnectionEventType.interruptionStarted));
+    expect(connectionEvents, contains(VoiceCallConnectionEventType.interruptionRecovered));
+
+    await sdk.dispose();
+    await engine.dispose();
+  });
 }
 
 class _FakeSignalingTransport implements VoiceCallSignalingTransport {

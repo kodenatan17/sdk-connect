@@ -6,6 +6,17 @@ enum MediaEngineEventType {
   iceRestarting,
   iceRecovered,
   networkQualityChanged,
+  interruptionStarted,
+  interruptionEnded,
+  audioRouteChanged,
+}
+
+enum MediaAudioRoute {
+  earpiece,
+  speaker,
+  bluetooth,
+  wiredHeadset,
+  unknown,
 }
 
 class MediaNetworkQuality {
@@ -54,11 +65,13 @@ class MediaEngineEvent {
     required this.type,
     this.reason,
     this.networkQuality,
+    this.audioRoute,
   });
 
   final MediaEngineEventType type;
   final String? reason;
   final MediaNetworkQuality? networkQuality;
+  final MediaAudioRoute? audioRoute;
 }
 
 abstract class MediaEngine {

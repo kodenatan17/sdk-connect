@@ -2,7 +2,7 @@
 
 Flutter call SDK with a single `CallEngine` lifecycle, internal media orchestration, and a plug-and-play `SDKConnect` public API.
 
-Production reliability is included: auto reconnect, signaling + ICE recovery hooks, silent token refresh, adaptive audio-priority fallback, and configurable network thresholds.
+Production reliability is included: auto reconnect, signaling + ICE recovery hooks, silent token refresh, adaptive audio-priority fallback, configurable network thresholds, app lifecycle handling, interruption recovery, and audio route management.
 
 ## Design Goals
 
@@ -83,7 +83,7 @@ SDKConnectCallbacks(
 ```
 
 - `SDKConnectUserEvent`: outgoing started, incoming received, accepted, rejected, ended, P2P limit exceeded.
-- `SDKConnectConnectionEvent`: initializing, ready, dialing, ringing, connected, reconnecting, recovered, iceRecoveryStarted, iceRecovered, networkDegraded, networkRecovered, ended, idle.
+- `SDKConnectConnectionEvent`: initializing, ready, lifecycleChanged, dialing, ringing, connected, interruptionStarted, interruptionRecovered, mediaSessionRestored, audioRouteChanged, reconnecting, recovered, iceRecoveryStarted, iceRecovered, networkDegraded, networkRecovered, ended, idle.
 - `SDKConnectErrorEvent`: operation, error, stack trace.
 - `SDKConnectTokenEvent`: requested, resolved, refreshRequested, refreshed, refreshFailed, failed.
 - `sdk.events`: unified stream of all SDK events.
@@ -152,11 +152,23 @@ class CallNetworkThresholds {
 - Preserves active `CallEngine` session while reconnecting.
 - Uses grace timeout before ending call on sustained network loss.
 - Prevents reconnect loops with cooldown + bounded backoff.
+- Deduplicates concurrent reconnect attempts and token refresh calls.
 - Emits reconnect and recovery events.
 - Supports ICE recovery signaling hooks.
-- Silently refreshes near-expiry tokens.
+- Silently refreshes near-expiry tokens; concurrent refresh calls share a single in-flight future.
 - Automatically downgrades to audio-priority on weak network.
 - Automatically recovers to balanced profile when network is stable.
+
+## Lifecycle Safety
+
+- All state-mutating operations are serialized through an internal operation queue — no concurrent state mutations are possible.
+- Strict finite-state machine transitions are enforced on every phase change; invalid transitions throw `CallLifecycleException`.
+- Repeated identical actions are debounced automatically (350 ms window).
+- App lifecycle is observed internally by `VoiceCallSdk` via `WidgetsBindingObserver` — no manual wiring required.
+- When the app moves to background (paused / inactive / hidden), an `interruptionStarted` event is emitted.
+- When the app returns to foreground after an interruption, media session state (mute, speaker, camera) is automatically restored and `interruptionRecovered` + `mediaSessionRestored` events are emitted.
+- Audio route changes (earpiece ↔ speaker ↔ bluetooth ↔ wired) are tracked internally and surfaced as `audioRouteChanged` events.
+- Signaling replay-deduplication cache is bounded to 512 entries with LRU eviction and is cleared on every idle transition.
 
 ### Recommended Reliability Preset
 
@@ -293,7 +305,8 @@ SDKConnectCallbacks(
   },
   onConnection: (event) {
     // ready, dialing, ringing, connected,
-    // reconnecting, recovered, iceRecoveryStarted, iceRecovered,
+    // interruptionStarted, interruptionRecovered, mediaSessionRestored, audioRouteChanged,
+    // lifecycleChanged, reconnecting, recovered, iceRecoveryStarted, iceRecovered,
     // networkDegraded, networkRecovered, ended, idle
   },
   onError: (event) {

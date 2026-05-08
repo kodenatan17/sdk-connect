@@ -1,5 +1,5 @@
 {
-  "feature": "production-grade reliability for SDKConnect (auto reconnect, ICE recovery hook, silent token refresh hook, adaptive audio-priority fallback, configurable network thresholds, reconnect/recovered/token events)",
+  "feature": "production-grade lifecycle safety for SDKConnect (strict transitions, serialized operations, reconnect/token race guards, internal app lifecycle handling, interruption recovery, audio route events)",
   "keys": [
     "ARCH_CALL_ENGINE_LIFECYCLE_V1",
     "RULE_SDK_ONLY_USAGE_V1",
@@ -20,7 +20,19 @@
     "TEST_COVERAGE_V2",
     "TEST_CALLTYPE_GUARDS_V1",
     "ARCH_PRODUCTION_RELIABILITY_SDKCONNECT_V1",
-    "SEC_SILENT_TOKEN_REFRESH_HOOK_V1"
+    "SEC_SILENT_TOKEN_REFRESH_HOOK_V1",
+    "ARCH_LIFECYCLE_SAFETY_V1",
+    "ARCH_SERIALIZED_MEDIA_EVENTS_V1",
+    "SEC_RECONNECT_TOKEN_RACE_GUARD_V1",
+    "ARCH_CALL_ENGINE_SERIALIZED_OPS",
+    "ARCH_LIFECYCLE_OBSERVER_V1",
+    "ARCH_INTERRUPTION_RECOVERY_V1",
+    "ARCH_AUDIO_ROUTE_EVENTS_V1",
+    "ARCH_TOKEN_REFRESH_DEDUP_V1",
+    "ARCH_RECONNECT_INFLIGHT_GUARD_V1",
+    "ARCH_STRICT_TRANSITIONS_V1",
+    "SEC_REPLAY_BOUNDED_CACHE_V1",
+    "ARCH_ACTION_DEBOUNCE_V1"
   ],
   "constraints_preserved": [
     "CallEngine lifecycle",
@@ -32,18 +44,26 @@
     "JWT expiry enforced before media connect",
     "Invalid signals emit error events (no silent drops)",
     "Facade split preserves a single CallEngine authority",
-    "Accept flows fail fast on callType mismatches"
+    "Accept flows fail fast on callType mismatches",
+    "Media-event mutations serialized through CallEngine queue",
+    "Signal replay cache is bounded and cleared on idle"
   ],
-  "agents": ["solo-orchestrator", "mbg-memory-system", "senior-reviewer", "pakpol-security"],
-  "skills": ["flutter-architecture-skill", "call-engine-skill", "realtime-signaling-skill", "media-engine-skill", "realtime-security-skill"],
+  "agents": ["joko-builder", "senior-reviewer", "pakpol-security"],
+  "skills": ["flutter-architecture-skill", "call-lifecycle-skill", "realtime-security-skill"],
   "outcome": "success",
   "verified_facts": [
-    "SDKConnect reliability flow supports automatic reconnect orchestration",
-    "ICE recovery integration is available as a dedicated recovery hook",
-    "Silent token refresh is supported through a non-disruptive refresh hook",
-    "Adaptive audio-priority fallback can preserve continuity during degraded network conditions",
-    "Network quality thresholds are configurable for deployment tuning",
-    "Reconnect, recovered, and token lifecycle events are available for consumer observability"
+    "All CallEngine state-mutating operations serialized through _operationQueue chain",
+    "Media event handlers route through queue via _runSerialized",
+    "VoiceCallSdk registers as WidgetsBindingObserver with try/catch guard",
+    "CallEngine tracks _isInterrupted flag; paused/inactive/hidden emits interruptionStarted",
+    "Interruption recovery triggers _restoreMediaSession (reconnect + mute/speaker/video restore)",
+    "setSpeakerOn emits audioRouteChanged from CallEngine; LiveKitMediaEngine emits MediaEngineEvent",
+    "Token refresh deduplication via _tokenRefreshInFlight shared future",
+    "_isReconnectAttemptInFlight prevents double-entry reconnect",
+    "_isTransitionAllowed matrix enforces valid FSM edges at every _transition call",
+    "Replay dedup set bounded to 512 entries with LRU eviction; cleared on idle",
+    "_isActionDebounced with per-action key and 350ms default prevents burst duplicates"
   ],
-  "round": 7
+  "test_count": 33,
+  "round": 9
 }

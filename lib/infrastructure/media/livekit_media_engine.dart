@@ -97,6 +97,13 @@ class LiveKitMediaEngine implements MediaEngine {
 
     await lk.Hardware.instance.setSpeakerphoneOn(speakerOn);
     _isSpeakerOn = speakerOn;
+    _emitEvent(
+      MediaEngineEvent(
+        type: MediaEngineEventType.audioRouteChanged,
+        reason: speakerOn ? 'speaker' : 'earpiece',
+        audioRoute: speakerOn ? MediaAudioRoute.speaker : MediaAudioRoute.earpiece,
+      ),
+    );
   }
 
   @override

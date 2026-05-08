@@ -416,6 +416,104 @@ void main() {
     await engine.dispose();
   });
 
+  test('lifecycle interruption resume restores media session and audio route', () async {
+    final media = _FakeMediaEngine();
+    final engine = CallEngine(
+      mediaEngine: media,
+      logger: _InMemoryLogger(),
+    );
+    final events = <CallEngineEventType>[];
+    final sub = engine.events.listen((event) => events.add(event.type));
+
+    await engine.startOutgoing(
+      callId: 'call-r5',
+      peerId: 'peer-r5',
+      roomUrl: 'wss://room.test',
+      token: validToken,
+      callType: CallType.video,
+    );
+    engine.markOutgoingConnected();
+    await engine.setMuted(true);
+    await engine.setSpeakerOn(true);
+    await engine.setVideoEnabled(true);
+
+    await media.disconnect();
+
+    await engine.onAppLifecycleChanged(CallAppLifecycleState.paused);
+    await engine.onAppLifecycleChanged(CallAppLifecycleState.resumed);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(engine.state.phase, CallPhase.connected);
+    expect(media.connectCount, 2);
+    expect(media.isMuted, isTrue);
+    expect(media.isSpeakerOn, isTrue);
+    expect(media.isVideoEnabled, isTrue);
+    expect(events, contains(CallEngineEventType.interruptionStarted));
+    expect(events, contains(CallEngineEventType.interruptionRecovered));
+    expect(events, contains(CallEngineEventType.mediaSessionRestored));
+    expect(events, contains(CallEngineEventType.audioRouteChanged));
+
+    await sub.cancel();
+    await engine.dispose();
+  });
+
+  test('reconnect path deduplicates token refresh during disconnect storm', () async {
+    final media = _FakeMediaEngine();
+    final nowSec = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    final expiringToken = _jwtWithExp(nowSec + 20);
+    final refreshedToken = _jwtWithExp(nowSec + 7200);
+    final refreshCompleter = Completer<String>();
+    var refreshCalls = 0;
+
+    final engine = CallEngine(
+      mediaEngine: media,
+      logger: _InMemoryLogger(),
+      reconnectPolicy: const CallReconnectPolicy(
+        initialDelay: Duration(milliseconds: 10),
+        maxDelay: Duration(milliseconds: 20),
+        graceTimeout: Duration(milliseconds: 260),
+        tokenRefreshBeforeExpiry: Duration(minutes: 2),
+      ),
+      tokenRefresher: (session, reconnectAttempt) async {
+        refreshCalls += 1;
+        return refreshCompleter.future;
+      },
+    );
+
+    await engine.startOutgoing(
+      callId: 'call-r6',
+      peerId: 'peer-r6',
+      roomUrl: 'wss://room.test',
+      token: expiringToken,
+    );
+    engine.markOutgoingConnected();
+    media.connectFailuresBeforeSuccess = 1;
+
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.disconnected,
+        reason: 'network_drop_storm',
+      ),
+    );
+    media.emitEvent(
+      const MediaEngineEvent(
+        type: MediaEngineEventType.disconnected,
+        reason: 'network_drop_storm',
+      ),
+    );
+
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(refreshCalls, 1);
+
+    refreshCompleter.complete(refreshedToken);
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+
+    expect(refreshCalls, 1);
+    expect(engine.state.phase, CallPhase.connected);
+
+    await engine.dispose();
+  });
+
   test('dispose is idempotent and blocks further transitions', () async {
     final media = _FakeMediaEngine();
     final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());

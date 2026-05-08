@@ -55,7 +55,28 @@ class CallNetworkThresholds {
   final int audioPriorityMaxVideoFps;
 }
 
+enum CallAppLifecycleState {
+  resumed,
+  inactive,
+  paused,
+  hidden,
+  detached,
+}
+
+enum CallAudioRoute {
+  earpiece,
+  speaker,
+  bluetooth,
+  wiredHeadset,
+  unknown,
+}
+
 enum CallEngineEventType {
+  lifecycleChanged,
+  interruptionStarted,
+  interruptionRecovered,
+  mediaSessionRestored,
+  audioRouteChanged,
   reconnecting,
   recovered,
   reconnectFailed,
@@ -79,6 +100,8 @@ class CallEngineEvent {
     this.reconnectAttempt,
     this.networkScore,
     this.error,
+    this.lifecycleState,
+    this.audioRoute,
   });
 
   final CallEngineEventType type;
@@ -87,6 +110,8 @@ class CallEngineEvent {
   final int? reconnectAttempt;
   final int? networkScore;
   final Object? error;
+  final CallAppLifecycleState? lifecycleState;
+  final CallAudioRoute? audioRoute;
   final DateTime timestamp;
 }
 
@@ -111,29 +136,37 @@ class CallEngine {
   final MediaEngine _mediaEngine;
   final StructuredLogger _logger;
   final DateTime Function() _clock;
-    final CallReconnectPolicy _reconnectPolicy;
-    final CallNetworkThresholds _networkThresholds;
-    final CallTokenRefresher? _tokenRefresher;
+  final CallReconnectPolicy _reconnectPolicy;
+  final CallNetworkThresholds _networkThresholds;
+  final CallTokenRefresher? _tokenRefresher;
   final StreamController<CallState> _controller =
       StreamController<CallState>.broadcast();
-    final StreamController<CallEngineEvent> _eventsController =
+  final StreamController<CallEngineEvent> _eventsController =
       StreamController<CallEngineEvent>.broadcast();
   late final StreamSubscription<MediaEngineEvent> _mediaEventsSubscription;
 
   CallState _state;
   bool _isDisposed = false;
   bool _isDisconnectingInternally = false;
-    int _reconnectAttempt = 0;
-    Timer? _reconnectTimer;
-    Timer? _graceTimer;
-    Timer? _stableNetworkTimer;
-    DateTime? _lastRecoveryCycleAt;
-    bool _videoWasEnabledBeforeFallback = false;
-    String? _activeRoomUrl;
-    String? _activeToken;
+  int _reconnectAttempt = 0;
+  Timer? _reconnectTimer;
+  Timer? _graceTimer;
+  Timer? _stableNetworkTimer;
+  DateTime? _lastRecoveryCycleAt;
+  bool _videoWasEnabledBeforeFallback = false;
+  String? _activeRoomUrl;
+  String? _activeToken;
+  Future<void> _operationQueue = Future<void>.value();
+  Future<String>? _tokenRefreshInFlight;
+  bool _isReconnectAttemptInFlight = false;
+  bool _isInterrupted = false;
+  DateTime? _lastActionAt;
+  String? _lastActionKey;
+  CallAppLifecycleState _lastLifecycleState = CallAppLifecycleState.resumed;
+  CallAudioRoute _audioRoute = CallAudioRoute.earpiece;
 
   Stream<CallState> get states => _controller.stream;
-    Stream<CallEngineEvent> get events => _eventsController.stream;
+  Stream<CallEngineEvent> get events => _eventsController.stream;
   CallState get state => _state;
 
   Future<void> startOutgoing({
@@ -143,52 +176,53 @@ class CallEngine {
     required String token,
     CallType callType = CallType.voice,
   }) async {
-    _ensureActive('start_outgoing');
-    _guardStartAllowed('start_outgoing');
-    _validateConnectParams(roomUrl: roomUrl, token: token);
+    await _runSerialized('start_outgoing', () async {
+      _guardStartAllowed('start_outgoing');
+      _validateConnectParams(roomUrl: roomUrl, token: token);
 
-    final session = CallSession(
-      callId: callId,
-      peerId: peerId,
-      direction: CallDirection.outgoing,
-      callType: callType,
-      createdAt: _clock(),
-    );
-
-    _transition(
-      to: CallPhase.dialing,
-      session: session,
-      event: 'call.start_outgoing',
-      fields: const <String, Object?>{},
-    );
-
-    try {
-      _setActiveConnection(roomUrl: roomUrl, token: token);
-      _resetRecoveryCycle();
-      await _mediaEngine.connect(roomUrl: roomUrl, token: token);
-      _log('media.connected', <String, Object?>{'callId': callId});
-    } on P2PLimitExceededException catch (_) {
-      _transition(
-        to: CallPhase.ended,
-        reason: 'p2p_limit_exceeded',
-        event: 'call.p2p_limit_exceeded',
-        fields: <String, Object?>{'callId': callId},
+      final session = CallSession(
+        callId: callId,
+        peerId: peerId,
+        direction: CallDirection.outgoing,
+        callType: callType,
+        createdAt: _clock(),
       );
-      _resetToIdle('p2p_limit_cleanup');
-      rethrow;
-    } catch (error) {
+
       _transition(
-        to: CallPhase.ended,
-        reason: 'connect_failed',
-        event: 'call.connect_failed',
-        fields: <String, Object?>{
-          'callId': callId,
-          'error': _sanitizeError(error),
-        },
+        to: CallPhase.dialing,
+        session: session,
+        event: 'call.start_outgoing',
+        fields: const <String, Object?>{},
       );
-      _resetToIdle('connect_failure_cleanup');
-      rethrow;
-    }
+
+      try {
+        _setActiveConnection(roomUrl: roomUrl, token: token);
+        _resetRecoveryCycle();
+        await _mediaEngine.connect(roomUrl: roomUrl, token: token);
+        _log('media.connected', <String, Object?>{'callId': callId});
+      } on P2PLimitExceededException catch (_) {
+        _transition(
+          to: CallPhase.ended,
+          reason: 'p2p_limit_exceeded',
+          event: 'call.p2p_limit_exceeded',
+          fields: <String, Object?>{'callId': callId},
+        );
+        _resetToIdle('p2p_limit_cleanup');
+        rethrow;
+      } catch (error) {
+        _transition(
+          to: CallPhase.ended,
+          reason: 'connect_failed',
+          event: 'call.connect_failed',
+          fields: <String, Object?>{
+            'callId': callId,
+            'error': _sanitizeError(error),
+          },
+        );
+        _resetToIdle('connect_failure_cleanup');
+        rethrow;
+      }
+    });
   }
 
   void onIncoming({
@@ -219,76 +253,78 @@ class CallEngine {
     required String roomUrl,
     required String token,
   }) async {
-    _ensureActive('accept_incoming');
-    _guardPhase(
-      expected: const <CallPhase>{CallPhase.ringing},
-      action: 'accept_incoming',
-    );
-    _validateConnectParams(roomUrl: roomUrl, token: token);
+    await _runSerialized('accept_incoming', () async {
+      _guardPhase(
+        expected: const <CallPhase>{CallPhase.ringing},
+        action: 'accept_incoming',
+      );
+      _validateConnectParams(roomUrl: roomUrl, token: token);
 
-    try {
-      _setActiveConnection(roomUrl: roomUrl, token: token);
-      _resetRecoveryCycle();
-      await _mediaEngine.connect(roomUrl: roomUrl, token: token);
-      _log('media.connected', <String, Object?>{'callId': _state.session?.callId});
-    } on P2PLimitExceededException catch (_) {
+      try {
+        _setActiveConnection(roomUrl: roomUrl, token: token);
+        _resetRecoveryCycle();
+        await _mediaEngine.connect(roomUrl: roomUrl, token: token);
+        _log('media.connected', <String, Object?>{'callId': _state.session?.callId});
+      } on P2PLimitExceededException catch (_) {
+        _transition(
+          to: CallPhase.ended,
+          reason: 'p2p_limit_exceeded',
+          event: 'call.p2p_limit_exceeded',
+          fields: const <String, Object?>{},
+        );
+        _resetToIdle('p2p_limit_cleanup');
+        rethrow;
+      } catch (error) {
+        _transition(
+          to: CallPhase.ended,
+          reason: 'connect_failed',
+          event: 'call.connect_failed',
+          fields: <String, Object?>{'error': _sanitizeError(error)},
+        );
+        _resetToIdle('connect_failure_cleanup');
+        rethrow;
+      }
+
       _transition(
-        to: CallPhase.ended,
-        reason: 'p2p_limit_exceeded',
-        event: 'call.p2p_limit_exceeded',
+        to: CallPhase.connected,
+        event: 'call.accepted',
         fields: const <String, Object?>{},
       );
-      _resetToIdle('p2p_limit_cleanup');
-      rethrow;
-    } catch (error) {
-      _transition(
-        to: CallPhase.ended,
-        reason: 'connect_failed',
-        event: 'call.connect_failed',
-        fields: <String, Object?>{'error': _sanitizeError(error)},
-      );
-      _resetToIdle('connect_failure_cleanup');
-      rethrow;
-    }
-
-    _transition(
-      to: CallPhase.connected,
-      event: 'call.accepted',
-      fields: const <String, Object?>{},
-    );
+    });
   }
 
   Future<void> rejectIncoming({String reason = 'rejected'}) async {
-    _ensureActive('reject_incoming');
-    _guardPhase(
-      expected: const <CallPhase>{CallPhase.ringing},
-      action: 'reject_incoming',
-    );
-
-    _transition(
-      to: CallPhase.ended,
-      reason: reason,
-      event: 'call.rejected',
-      fields: <String, Object?>{'reason': reason},
-    );
-
-    try {
-      await _disconnectMedia();
-      _log(
-        'media.disconnected',
-        <String, Object?>{'callId': _state.session?.callId},
+    await _runSerialized('reject_incoming', () async {
+      _guardPhase(
+        expected: const <CallPhase>{CallPhase.ringing},
+        action: 'reject_incoming',
       );
-    } catch (error) {
-      _log(
-        'media.disconnect_failed',
-        <String, Object?>{
-          'callId': _state.session?.callId,
-          'error': _sanitizeError(error),
-        },
+
+      _transition(
+        to: CallPhase.ended,
+        reason: reason,
+        event: 'call.rejected',
+        fields: <String, Object?>{'reason': reason},
       );
-    } finally {
-      _resetToIdle('rejected_cleanup');
-    }
+
+      try {
+        await _disconnectMedia();
+        _log(
+          'media.disconnected',
+          <String, Object?>{'callId': _state.session?.callId},
+        );
+      } catch (error) {
+        _log(
+          'media.disconnect_failed',
+          <String, Object?>{
+            'callId': _state.session?.callId,
+            'error': _sanitizeError(error),
+          },
+        );
+      } finally {
+        _resetToIdle('rejected_cleanup');
+      }
+    });
   }
 
   void markOutgoingConnected() {
@@ -306,106 +342,196 @@ class CallEngine {
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) async {
-    _ensureActive('end_call');
-    _guardPhase(
-      expected: const <CallPhase>{
-        CallPhase.dialing,
-        CallPhase.ringing,
-        CallPhase.connected,
-      },
-      action: 'end_call',
-    );
+    await _runSerialized('end_call', () async {
+      if (_state.phase == CallPhase.idle || _state.phase == CallPhase.ended) {
+        return;
+      }
 
-    _transition(
-      to: CallPhase.ended,
-      reason: reason,
-      event: 'call.ended',
-      fields: <String, Object?>{'reason': reason},
-    );
-
-    try {
-      await _disconnectMedia();
-      _log(
-        'media.disconnected',
-        <String, Object?>{'callId': _state.session?.callId},
-      );
-    } catch (error) {
-      _log(
-        'media.disconnect_failed',
-        <String, Object?>{
-          'callId': _state.session?.callId,
-          'error': _sanitizeError(error),
+      _guardPhase(
+        expected: const <CallPhase>{
+          CallPhase.dialing,
+          CallPhase.ringing,
+          CallPhase.connected,
         },
+        action: 'end_call',
       );
-    } finally {
-      _resetToIdle('end_cleanup');
-    }
+
+      _transition(
+        to: CallPhase.ended,
+        reason: reason,
+        event: 'call.ended',
+        fields: <String, Object?>{'reason': reason},
+      );
+
+      try {
+        await _disconnectMedia();
+        _log(
+          'media.disconnected',
+          <String, Object?>{'callId': _state.session?.callId},
+        );
+      } catch (error) {
+        _log(
+          'media.disconnect_failed',
+          <String, Object?>{
+            'callId': _state.session?.callId,
+            'error': _sanitizeError(error),
+          },
+        );
+      } finally {
+        _resetToIdle('end_cleanup');
+      }
+    });
   }
 
   Future<void> setMuted(bool muted) async {
-    _ensureActive('set_muted');
-    _guardPhase(
-      expected: const <CallPhase>{CallPhase.connected},
-      action: 'set_muted',
-    );
+    await _runSerialized('set_muted', () async {
+      _guardPhase(
+        expected: const <CallPhase>{CallPhase.connected},
+        action: 'set_muted',
+      );
+      if (_state.isMuted == muted) {
+        return;
+      }
 
-    await _mediaEngine.setMuted(muted);
-    _state = _state.copyWith(
-      isMuted: muted,
-      updatedAt: _clock(),
-    );
-    _controller.add(_state);
-    _log(
-      'call.mute_updated',
-      <String, Object?>{
-        'callId': _state.session?.callId,
-        'isMuted': muted,
-      },
-    );
+      await _mediaEngine.setMuted(muted);
+      _state = _state.copyWith(
+        isMuted: muted,
+        updatedAt: _clock(),
+      );
+      _controller.add(_state);
+      _log(
+        'call.mute_updated',
+        <String, Object?>{
+          'callId': _state.session?.callId,
+          'isMuted': muted,
+        },
+      );
+    });
   }
 
   Future<void> setSpeakerOn(bool speakerOn) async {
-    _ensureActive('set_speaker_on');
-    _guardPhase(
-      expected: const <CallPhase>{CallPhase.connected},
-      action: 'set_speaker_on',
-    );
+    await _runSerialized('set_speaker_on', () async {
+      _guardPhase(
+        expected: const <CallPhase>{CallPhase.connected},
+        action: 'set_speaker_on',
+      );
+      if (_state.isSpeakerOn == speakerOn) {
+        return;
+      }
 
-    await _mediaEngine.setSpeakerOn(speakerOn);
-    _state = _state.copyWith(
-      isSpeakerOn: speakerOn,
-      updatedAt: _clock(),
-    );
-    _controller.add(_state);
-    _log(
-      'call.speaker_updated',
-      <String, Object?>{
-        'callId': _state.session?.callId,
-        'isSpeakerOn': speakerOn,
-      },
-    );
+      await _mediaEngine.setSpeakerOn(speakerOn);
+      _state = _state.copyWith(
+        isSpeakerOn: speakerOn,
+        updatedAt: _clock(),
+      );
+      _controller.add(_state);
+      _audioRoute = speakerOn ? CallAudioRoute.speaker : CallAudioRoute.earpiece;
+      _emitEngineEvent(
+        CallEngineEvent(
+          type: CallEngineEventType.audioRouteChanged,
+          callId: _state.session?.callId,
+          reason: _audioRoute.name,
+          audioRoute: _audioRoute,
+          timestamp: _clock(),
+        ),
+      );
+      _log(
+        'call.speaker_updated',
+        <String, Object?>{
+          'callId': _state.session?.callId,
+          'isSpeakerOn': speakerOn,
+        },
+      );
+    });
   }
 
   Future<void> setVideoEnabled(bool enabled) async {
-    _ensureActive('set_video_enabled');
-    _guardPhase(
-      expected: const <CallPhase>{CallPhase.dialing, CallPhase.connected},
-      action: 'set_video_enabled',
-    );
+    await _runSerialized('set_video_enabled', () async {
+      _guardPhase(
+        expected: const <CallPhase>{CallPhase.dialing, CallPhase.connected},
+        action: 'set_video_enabled',
+      );
+      if (_state.isVideoEnabled == enabled) {
+        return;
+      }
 
-    await _mediaEngine.setCameraOn(enabled);
-    _state = _state.copyWith(
-      isVideoEnabled: enabled,
-      updatedAt: _clock(),
-    );
-    _controller.add(_state);
-    _log(
-      'call.video_updated',
-      <String, Object?>{
-        'callId': _state.session?.callId,
-        'isVideoEnabled': enabled,
-      },
-    );
+      await _mediaEngine.setCameraOn(enabled);
+      _state = _state.copyWith(
+        isVideoEnabled: enabled,
+        updatedAt: _clock(),
+      );
+      _controller.add(_state);
+      _log(
+        'call.video_updated',
+        <String, Object?>{
+          'callId': _state.session?.callId,
+          'isVideoEnabled': enabled,
+        },
+      );
+    });
+  }
+
+  Future<void> onAppLifecycleChanged(CallAppLifecycleState lifecycleState) async {
+    await _runSerialized('app_lifecycle_changed', () async {
+      final isDuplicateState = lifecycleState == _lastLifecycleState;
+      if (isDuplicateState &&
+          _isActionDebounced(
+            'lifecycle.${lifecycleState.name}',
+            window: const Duration(milliseconds: 700),
+          )) {
+        return;
+      }
+      _lastLifecycleState = lifecycleState;
+      _emitEngineEvent(
+        CallEngineEvent(
+          type: CallEngineEventType.lifecycleChanged,
+          callId: _state.session?.callId,
+          lifecycleState: lifecycleState,
+          reason: lifecycleState.name,
+          timestamp: _clock(),
+        ),
+      );
+
+      if (_state.session == null ||
+          (_state.phase != CallPhase.connected && _state.phase != CallPhase.dialing)) {
+        return;
+      }
+
+      final isBackgroundLike = lifecycleState == CallAppLifecycleState.inactive ||
+          lifecycleState == CallAppLifecycleState.paused ||
+          lifecycleState == CallAppLifecycleState.hidden;
+
+      if (isBackgroundLike) {
+        if (_isInterrupted) {
+          return;
+        }
+        _isInterrupted = true;
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.interruptionStarted,
+            callId: _state.session?.callId,
+            reason: lifecycleState.name,
+            lifecycleState: lifecycleState,
+            timestamp: _clock(),
+          ),
+        );
+        return;
+      }
+
+      if (lifecycleState == CallAppLifecycleState.resumed && _isInterrupted) {
+        _isInterrupted = false;
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.interruptionRecovered,
+            callId: _state.session?.callId,
+            reason: 'app_resumed',
+            lifecycleState: lifecycleState,
+            timestamp: _clock(),
+          ),
+        );
+        await _restoreMediaSession();
+      }
+    });
   }
 
   Future<void> dispose() async {
@@ -429,6 +555,35 @@ class CallEngine {
       await _eventsController.close();
       await _controller.close();
     }
+  }
+
+  Future<T> _runSerialized<T>(
+    String action,
+    Future<T> Function() operation,
+  ) {
+    final next = _operationQueue
+        .catchError((Object _) {
+          // Keep the serialization chain alive after failures.
+        })
+        .then((_) async {
+          _ensureActive(action);
+          return operation();
+        });
+
+    _operationQueue = next.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return next;
+  }
+
+  bool _isActionDebounced(String actionKey, {Duration window = const Duration(milliseconds: 350)}) {
+    final now = _clock();
+    final lastKey = _lastActionKey;
+    final lastAt = _lastActionAt;
+    if (lastKey == actionKey && lastAt != null && now.difference(lastAt) < window) {
+      return true;
+    }
+    _lastActionKey = actionKey;
+    _lastActionAt = now;
+    return false;
   }
 
   void _ensureActive(String action) {
@@ -516,6 +671,19 @@ class CallEngine {
       return;
     }
 
+    unawaited(
+      _runSerialized(
+        'media_event.${event.type.name}',
+        () => _processMediaEvent(event),
+      ),
+    );
+  }
+
+  Future<void> _processMediaEvent(MediaEngineEvent event) async {
+    if (_isDisposed || _isDisconnectingInternally) {
+      return;
+    }
+
     switch (event.type) {
       case MediaEngineEventType.p2pLimitExceeded:
         _handleUnexpectedTermination(
@@ -523,8 +691,10 @@ class CallEngine {
           event: 'call.p2p_limit_exceeded',
           cleanupEvent: 'p2p_limit_cleanup',
         );
+        return;
       case MediaEngineEventType.disconnected:
         _handleMediaDisconnected(event.reason ?? 'media_disconnected');
+        return;
       case MediaEngineEventType.reconnecting:
         _emitEngineEvent(
           CallEngineEvent(
@@ -535,8 +705,10 @@ class CallEngine {
             timestamp: _clock(),
           ),
         );
+        return;
       case MediaEngineEventType.reconnected:
         _completeRecovery(reason: event.reason ?? 'media_reconnected');
+        return;
       case MediaEngineEventType.iceRestarting:
         _emitEngineEvent(
           CallEngineEvent(
@@ -546,6 +718,7 @@ class CallEngine {
             timestamp: _clock(),
           ),
         );
+        return;
       case MediaEngineEventType.iceRecovered:
         _emitEngineEvent(
           CallEngineEvent(
@@ -555,16 +728,58 @@ class CallEngine {
             timestamp: _clock(),
           ),
         );
+        return;
       case MediaEngineEventType.networkQualityChanged:
         final quality = event.networkQuality;
         if (quality != null) {
           _handleNetworkQuality(quality);
         }
+        return;
+      case MediaEngineEventType.interruptionStarted:
+        _isInterrupted = true;
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.interruptionStarted,
+            callId: _state.session?.callId,
+            reason: event.reason ?? 'media_interruption_started',
+            timestamp: _clock(),
+          ),
+        );
+        return;
+      case MediaEngineEventType.interruptionEnded:
+        _isInterrupted = false;
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.interruptionRecovered,
+            callId: _state.session?.callId,
+            reason: event.reason ?? 'media_interruption_ended',
+            timestamp: _clock(),
+          ),
+        );
+        await _restoreMediaSession();
+        return;
+      case MediaEngineEventType.audioRouteChanged:
+        final route = _mapMediaAudioRoute(event.audioRoute);
+        _audioRoute = route;
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.audioRouteChanged,
+            callId: _state.session?.callId,
+            reason: event.reason ?? route.name,
+            audioRoute: route,
+            timestamp: _clock(),
+          ),
+        );
+        return;
     }
   }
 
   void _handleMediaDisconnected(String reason) {
     if (_state.phase == CallPhase.idle || _state.phase == CallPhase.ended) {
+      return;
+    }
+
+    if (_isActionDebounced('media_disconnected.$reason', window: const Duration(milliseconds: 250))) {
       return;
     }
 
@@ -655,7 +870,7 @@ class CallEngine {
   void _scheduleReconnectAttempt(Duration delay) {
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () {
-      unawaited(_attemptReconnect());
+      unawaited(_runSerialized('reconnect_attempt', _attemptReconnect));
     });
   }
 
@@ -663,82 +878,90 @@ class CallEngine {
     if (_isDisposed || !_state.isReconnecting) {
       return;
     }
-
-    if (_reconnectAttempt >= _reconnectPolicy.maxAttempts) {
-      _emitEngineEvent(
-        CallEngineEvent(
-          type: CallEngineEventType.reconnectFailed,
-          callId: _state.session?.callId,
-          reason: 'max_reconnect_attempts',
-          reconnectAttempt: _reconnectAttempt,
-          timestamp: _clock(),
-        ),
-      );
-      _handleUnexpectedTermination(
-        reason: 'max_reconnect_attempts',
-        event: 'call.reconnect_exhausted',
-        cleanupEvent: 'reconnect_exhausted_cleanup',
-      );
+    if (_isReconnectAttemptInFlight) {
       return;
     }
-
-    _reconnectAttempt += 1;
-    _state = _state.copyWith(
-      reconnectAttempts: _reconnectAttempt,
-      updatedAt: _clock(),
-    );
-    _controller.add(_state);
-
-    final session = _state.session;
-    final roomUrl = _activeRoomUrl;
-    if (session == null || roomUrl == null || _activeToken == null) {
-      return;
-    }
-
-    _emitEngineEvent(
-      CallEngineEvent(
-        type: CallEngineEventType.reconnecting,
-        callId: session.callId,
-        reconnectAttempt: _reconnectAttempt,
-        reason: 'reconnect_attempt',
-        timestamp: _clock(),
-      ),
-    );
-
+    _isReconnectAttemptInFlight = true;
     try {
-      if (_reconnectPolicy.enableIceRecovery) {
+      if (_reconnectAttempt >= _reconnectPolicy.maxAttempts) {
         _emitEngineEvent(
           CallEngineEvent(
-            type: CallEngineEventType.iceRecoveryStarted,
-            callId: session.callId,
+            type: CallEngineEventType.reconnectFailed,
+            callId: _state.session?.callId,
+            reason: 'max_reconnect_attempts',
             reconnectAttempt: _reconnectAttempt,
             timestamp: _clock(),
           ),
         );
-        await _mediaEngine.restartIce();
+        _handleUnexpectedTermination(
+          reason: 'max_reconnect_attempts',
+          event: 'call.reconnect_exhausted',
+          cleanupEvent: 'reconnect_exhausted_cleanup',
+        );
+        return;
       }
 
-      final token = await _resolveTokenForReconnect(session);
-      await _mediaEngine.connect(roomUrl: roomUrl, token: token);
-      _completeRecovery(reason: 'reconnect_success');
-    } on P2PLimitExceededException catch (_) {
-      _handleUnexpectedTermination(
-        reason: 'p2p_limit_exceeded',
-        event: 'call.p2p_limit_exceeded',
-        cleanupEvent: 'p2p_limit_cleanup',
+      _reconnectAttempt += 1;
+      _state = _state.copyWith(
+        reconnectAttempts: _reconnectAttempt,
+        updatedAt: _clock(),
       );
-    } catch (error) {
-      _log(
-        'call.reconnect_attempt_failed',
-        <String, Object?>{
-          'callId': session.callId,
-          'attempt': _reconnectAttempt,
-          'error': _sanitizeError(error),
-        },
+      _controller.add(_state);
+
+      final session = _state.session;
+      final roomUrl = _activeRoomUrl;
+      if (session == null || roomUrl == null || _activeToken == null) {
+        return;
+      }
+
+      _emitEngineEvent(
+        CallEngineEvent(
+          type: CallEngineEventType.reconnecting,
+          callId: session.callId,
+          reconnectAttempt: _reconnectAttempt,
+          reason: 'reconnect_attempt',
+          timestamp: _clock(),
+        ),
       );
 
-      final backoff = _computeBackoff(_reconnectAttempt);
-      _scheduleReconnectAttempt(backoff);
+      try {
+        if (_reconnectPolicy.enableIceRecovery) {
+          _emitEngineEvent(
+            CallEngineEvent(
+              type: CallEngineEventType.iceRecoveryStarted,
+              callId: session.callId,
+              reconnectAttempt: _reconnectAttempt,
+              timestamp: _clock(),
+            ),
+          );
+          await _mediaEngine.restartIce();
+        }
+
+        final token = await _resolveTokenForReconnect(session);
+        await _mediaEngine.connect(roomUrl: roomUrl, token: token);
+        await _restoreMediaSession();
+        _completeRecovery(reason: 'reconnect_success');
+      } on P2PLimitExceededException catch (_) {
+        _handleUnexpectedTermination(
+          reason: 'p2p_limit_exceeded',
+          event: 'call.p2p_limit_exceeded',
+          cleanupEvent: 'p2p_limit_cleanup',
+        );
+      } catch (error) {
+        _log(
+          'call.reconnect_attempt_failed',
+          <String, Object?>{
+            'callId': session.callId,
+            'attempt': _reconnectAttempt,
+            'error': _sanitizeError(error),
+          },
+        );
+
+        final backoff = _computeBackoff(_reconnectAttempt);
+        _scheduleReconnectAttempt(backoff);
+      }
+    } finally {
+      _isReconnectAttemptInFlight = false;
     }
   }
 
@@ -761,6 +984,11 @@ class CallEngine {
       return currentToken;
     }
 
+    final inFlight = _tokenRefreshInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
     _emitEngineEvent(
       CallEngineEvent(
         type: CallEngineEventType.tokenRefreshRequested,
@@ -770,34 +998,41 @@ class CallEngine {
       ),
     );
 
-    try {
-      final refreshed = await _tokenRefresher(session, _reconnectAttempt);
-      _validateConnectParams(roomUrl: _activeRoomUrl!, token: refreshed);
-      await _mediaEngine.updateToken(refreshed);
-      _activeToken = refreshed;
+    final refreshFuture = (() async {
+      try {
+        final refreshed = await _tokenRefresher(session, _reconnectAttempt);
+        _validateConnectParams(roomUrl: _activeRoomUrl!, token: refreshed);
+        await _mediaEngine.updateToken(refreshed);
+        _activeToken = refreshed;
 
-      _emitEngineEvent(
-        CallEngineEvent(
-          type: CallEngineEventType.tokenRefreshed,
-          callId: session.callId,
-          reconnectAttempt: _reconnectAttempt,
-          timestamp: _clock(),
-        ),
-      );
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.tokenRefreshed,
+            callId: session.callId,
+            reconnectAttempt: _reconnectAttempt,
+            timestamp: _clock(),
+          ),
+        );
 
-      return refreshed;
-    } catch (error) {
-      _emitEngineEvent(
-        CallEngineEvent(
-          type: CallEngineEventType.tokenRefreshFailed,
-          callId: session.callId,
-          reconnectAttempt: _reconnectAttempt,
-          error: error,
-          timestamp: _clock(),
-        ),
-      );
-      rethrow;
-    }
+        return refreshed;
+      } catch (error) {
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.tokenRefreshFailed,
+            callId: session.callId,
+            reconnectAttempt: _reconnectAttempt,
+            error: error,
+            timestamp: _clock(),
+          ),
+        );
+        rethrow;
+      } finally {
+        _tokenRefreshInFlight = null;
+      }
+    })();
+
+    _tokenRefreshInFlight = refreshFuture;
+    return refreshFuture;
   }
 
   bool _tokenShouldRefresh(String token) {
@@ -970,6 +1205,57 @@ class CallEngine {
     );
   }
 
+  Future<void> _restoreMediaSession() async {
+    if (_state.phase != CallPhase.connected || _state.session == null) {
+      return;
+    }
+
+    if (!_mediaEngine.isConnected) {
+      final roomUrl = _activeRoomUrl;
+      final token = _activeToken;
+      if (roomUrl == null || token == null) {
+        return;
+      }
+
+      final refreshedToken = await _resolveTokenForReconnect(_state.session!);
+      await _mediaEngine.connect(roomUrl: roomUrl, token: refreshedToken);
+    }
+
+    await _mediaEngine.setMuted(_state.isMuted);
+    await _mediaEngine.setSpeakerOn(_state.isSpeakerOn);
+    await _mediaEngine.setCameraOn(_state.isVideoEnabled);
+
+    _audioRoute = _state.isSpeakerOn ? CallAudioRoute.speaker : CallAudioRoute.earpiece;
+    _emitEngineEvent(
+      CallEngineEvent(
+        type: CallEngineEventType.mediaSessionRestored,
+        callId: _state.session?.callId,
+        reason: 'media_session_restored',
+        timestamp: _clock(),
+      ),
+    );
+    _emitEngineEvent(
+      CallEngineEvent(
+        type: CallEngineEventType.audioRouteChanged,
+        callId: _state.session?.callId,
+        reason: _audioRoute.name,
+        audioRoute: _audioRoute,
+        timestamp: _clock(),
+      ),
+    );
+  }
+
+  CallAudioRoute _mapMediaAudioRoute(MediaAudioRoute? route) {
+    return switch (route) {
+      MediaAudioRoute.earpiece => CallAudioRoute.earpiece,
+      MediaAudioRoute.speaker => CallAudioRoute.speaker,
+      MediaAudioRoute.bluetooth => CallAudioRoute.bluetooth,
+      MediaAudioRoute.wiredHeadset => CallAudioRoute.wiredHeadset,
+      MediaAudioRoute.unknown => CallAudioRoute.unknown,
+      null => CallAudioRoute.unknown,
+    };
+  }
+
   void _handleUnexpectedTermination({
     required String reason,
     required String event,
@@ -997,6 +1283,18 @@ class CallEngine {
     bool clearReason = false,
   }) {
     final from = _state.phase;
+    if (!_isTransitionAllowed(from: from, to: to)) {
+      _log(
+        'call.transition_blocked',
+        <String, Object?>{
+          'from': from.name,
+          'to': to.name,
+          'event': event,
+          'callId': _state.session?.callId,
+        },
+      );
+      throw CallLifecycleException('Invalid transition from ${from.name} to ${to.name}.');
+    }
 
     _state = _state.copyWith(
       phase: to,
@@ -1028,12 +1326,35 @@ class CallEngine {
     );
   }
 
+  bool _isTransitionAllowed({
+    required CallPhase from,
+    required CallPhase to,
+  }) {
+    if (from == to) {
+      return true;
+    }
+
+    final allowed = <CallPhase, Set<CallPhase>>{
+      CallPhase.idle: const <CallPhase>{CallPhase.dialing, CallPhase.ringing},
+      CallPhase.dialing: const <CallPhase>{CallPhase.connected, CallPhase.ended},
+      CallPhase.ringing: const <CallPhase>{CallPhase.connected, CallPhase.ended},
+      CallPhase.connected: const <CallPhase>{CallPhase.ended},
+      CallPhase.ended: const <CallPhase>{CallPhase.idle},
+    };
+
+    return allowed[from]?.contains(to) ?? false;
+  }
+
   void _resetToIdle(String event) {
     _cancelRecoveryTimers();
     _activeRoomUrl = null;
     _activeToken = null;
+    _tokenRefreshInFlight = null;
     _reconnectAttempt = 0;
+    _isReconnectAttemptInFlight = false;
+    _isInterrupted = false;
     _videoWasEnabledBeforeFallback = false;
+    _audioRoute = CallAudioRoute.earpiece;
 
     _state = CallState(
       phase: CallPhase.idle,
@@ -1062,6 +1383,7 @@ class CallEngine {
   void _resetRecoveryCycle() {
     _cancelRecoveryTimers();
     _reconnectAttempt = 0;
+    _isReconnectAttemptInFlight = false;
     _videoWasEnabledBeforeFallback = false;
     _state = _state.copyWith(
       isReconnecting: false,

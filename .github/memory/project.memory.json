@@ -122,8 +122,8 @@
       "Media join and state transition must not proceed after a callType mismatch"
     ]
   },
-  "TEST_COVERAGE_V2": {
-    "description": "22 tests passing (1 skipped) as of 2026-05-07",
+  "TEST_COVERAGE_V3": {
+    "description": "33 tests passing (0 skipped) as of 2026-05-08",
     "rules": [
       "New tests cover: video start enables camera, setVideoEnabled toggle, expired JWT rejection, malformed JWT, signalValidator rejection emits error, invalid envelope emits error",
       "Widget test skip remains intentional per TEST_WIDGET_SKIP_USER_APPROVED_V1"
@@ -153,6 +153,96 @@
       "Token refresh hooks must avoid exposing raw token values in logs/events",
       "Refresh failures emit explicit lifecycle events for caller-controlled handling",
       "Recovered auth state must revalidate connect preconditions before media escalation"
+    ]
+  },
+  "ARCH_LIFECYCLE_SAFETY_V1": {
+    "description": "Production-grade lifecycle safety: strict phase transitions, serialized operations, app lifecycle and interruption handling",
+    "rules": [
+      "Invalid phase transitions (e.g., connecting→connecting) are rejected by CallEngine guard",
+      "All state-mutating operations are enqueued and executed serially to prevent races",
+      "App lifecycle events (foreground/background/interrupted) are handled internally by CallEngine",
+      "Interruption recovery (calls/notifications/audio-session loss) restores state without consumer action",
+      "Audio route change events are surfaced via callback; speaker/routing decisions remain consumer-controlled"
+    ]
+  },
+  "ARCH_SERIALIZED_MEDIA_EVENTS_V1": {
+    "description": "Media-event mutations are serialized through the CallEngine internal queue",
+    "rules": [
+      "All media state changes (mute, camera, speaker) are dispatched through the engine queue",
+      "Signal replay cache is bounded to prevent unbounded memory growth",
+      "Signal replay cache is cleared when CallEngine returns to idle phase"
+    ]
+  },
+  "SEC_RECONNECT_TOKEN_RACE_GUARD_V1": {
+    "description": "Reconnect and token refresh paths are guarded against concurrent execution races",
+    "rules": [
+      "A reconnect in-progress flag prevents parallel reconnect attempts",
+      "Token refresh guards prevent a stale token from racing a fresh one into media connect",
+      "Race guard state is reset only after the guarded operation fully resolves or fails"
+    ]
+  },
+  "ARCH_CALL_ENGINE_SERIALIZED_OPS": {
+    "description": "All CallEngine state-mutating operations are serialized through a single _operationQueue chain",
+    "rules": [
+      "start, accept, reject, end, mute, speaker, video, and lifecycle ops all chain through _operationQueue",
+      "Media event handlers route through the queue via _runSerialized",
+      "No state-mutating path bypasses the queue"
+    ]
+  },
+  "ARCH_LIFECYCLE_OBSERVER_V1": {
+    "description": "VoiceCallSdk registers as WidgetsBindingObserver internally with safety guards",
+    "rules": [
+      "Register/unregister wrapped in try/catch to be safe in non-widget test environments",
+      "Observer registration is managed by VoiceCallSdk, not consumer code"
+    ]
+  },
+  "ARCH_INTERRUPTION_RECOVERY_V1": {
+    "description": "CallEngine tracks _isInterrupted flag and recovers media session after interruptions",
+    "rules": [
+      "paused/inactive/hidden lifecycle states emit interruptionStarted",
+      "resumed after interruption triggers _restoreMediaSession",
+      "_restoreMediaSession reconnects if needed and restores mute/speaker/video state"
+    ]
+  },
+  "ARCH_AUDIO_ROUTE_EVENTS_V1": {
+    "description": "setSpeakerOn emits audioRouteChanged event from CallEngine",
+    "rules": [
+      "CallEngine emits audioRouteChanged after setSpeakerOn",
+      "LiveKitMediaEngine emits audioRouteChanged MediaEngineEvent on setSpeakerOn"
+    ]
+  },
+  "ARCH_TOKEN_REFRESH_DEDUP_V1": {
+    "description": "Token refresh deduplication via _tokenRefreshInFlight shared future",
+    "rules": [
+      "Concurrent reconnect paths share the same _tokenRefreshInFlight future",
+      "tokenRefresher is not called multiple times during concurrent reconnects"
+    ]
+  },
+  "ARCH_RECONNECT_INFLIGHT_GUARD_V1": {
+    "description": "_isReconnectAttemptInFlight bool prevents double-entry reconnect attempts",
+    "rules": [
+      "Guard is set before reconnect logic begins and cleared on completion or failure"
+    ]
+  },
+  "ARCH_STRICT_TRANSITIONS_V1": {
+    "description": "_isTransitionAllowed matrix enforces valid FSM edges at every _transition call",
+    "rules": [
+      "Invalid phase transitions are rejected before any side effects occur",
+      "All state-mutation paths invoke _transition through the guarded matrix"
+    ]
+  },
+  "SEC_REPLAY_BOUNDED_CACHE_V1": {
+    "description": "Signal replay dedup set is bounded to 512 entries with LRU eviction",
+    "rules": [
+      "LRU order queue tracks eviction order; oldest entry removed when limit reached",
+      "Cache is cleared on idle transition to prevent stale replay entries"
+    ]
+  },
+  "ARCH_ACTION_DEBOUNCE_V1": {
+    "description": "_isActionDebounced with per-action key and 350ms default window prevents burst duplicates",
+    "rules": [
+      "Each action uses its own key in the debounce map",
+      "Default debounce window is 350ms unless overridden per action"
     ]
   }
 }
