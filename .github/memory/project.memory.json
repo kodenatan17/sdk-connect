@@ -244,5 +244,14 @@
       "Each action uses its own key in the debounce map",
       "Default debounce window is 350ms unless overridden per action"
     ]
+  },
+  "ARCH_EXAMPLE_VOICE_VIDEO_STRUCTURE_V1": {
+    "description": "Example app usage is organized by feature folders with centralized bootstrap and config",
+    "rules": [
+      "example/main.dart remains the bootstrap entry point",
+      "SDK configuration is centralized in example/config/config_sdk.dart",
+      "Incoming call UI is isolated in example/call_screen/incoming_call_screen.dart",
+      "Voice and video call screens live in example/voice/voice_call_screen.dart and example/video/video_call_screen.dart"
+    ]
   }
 }

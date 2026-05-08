@@ -1,21 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:sdk_connect/sdk_connect.dart';
 
 class IncomingCallScreen extends StatelessWidget {
   const IncomingCallScreen({
     super.key,
     required this.peerId,
+    required this.callType,
     required this.onAccept,
     required this.onReject,
   });
 
   final String peerId;
+  final CallType callType;
   final Future<void> Function() onAccept;
   final Future<void> Function() onReject;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Incoming Call')),
+      appBar: AppBar(
+        title: Text(
+          callType == CallType.video
+              ? 'Incoming Video Call'
+              : 'Incoming Voice Call',
+        ),
+      ),
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -23,10 +32,15 @@ class IncomingCallScreen extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                const Icon(Icons.ring_volume, size: 56),
+                Icon(
+                  callType == CallType.video
+                      ? Icons.video_call
+                      : Icons.ring_volume,
+                  size: 56,
+                ),
                 const SizedBox(height: 16),
                 Text(
-                  'Incoming call from $peerId',
+                  'Incoming ${callType.name} call from $peerId',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
@@ -50,7 +64,11 @@ class IncomingCallScreen extends StatelessWidget {
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () => onAccept(),
-                      icon: const Icon(Icons.call),
+                      icon: Icon(
+                        callType == CallType.video
+                            ? Icons.videocam
+                            : Icons.call,
+                      ),
                       label: const Text('Accept'),
                     ),
                   ],

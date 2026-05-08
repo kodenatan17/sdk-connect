@@ -1,20 +1,18 @@
 import 'package:sdk_connect/sdk_connect.dart';
-import 'package:sdk_connect/di/sdk_connect_scope.dart';
 
-class SdkSetup {
-  const SdkSetup();
+class ConfigSdk {
+  const ConfigSdk();
 
   static const String localUserId = 'demo-user-a';
 
-  static const String roomUrl =
-      String.fromEnvironment('SDK_CONNECT_ROOM_URL', defaultValue: '');
-  static const String token =
-      String.fromEnvironment('SDK_CONNECT_ACCESS_TOKEN', defaultValue: '');
-
-  Future<SdkConnectScope> initialize() async {
-    // Uses SDK abstraction only; no direct LiveKit object in the app layer.
-    return SdkConnectScope.liveKit();
-  }
+  static const String roomUrl = String.fromEnvironment(
+    'SDK_CONNECT_ROOM_URL',
+    defaultValue: '',
+  );
+  static const String token = String.fromEnvironment(
+    'SDK_CONNECT_ACCESS_TOKEN',
+    defaultValue: '',
+  );
 
   InMemorySDKConnectSignalingTransport createDemoSignaling() {
     return InMemorySDKConnectSignalingTransport();
@@ -22,9 +20,9 @@ class SdkSetup {
 
   SDKConnectTokenProvider createTokenProvider() {
     return (_) async => SDKConnectCredentials(
-          roomUrl: requireValidRoomUrl(),
-          token: requireValidToken(),
-        );
+      roomUrl: requireValidRoomUrl(),
+      token: requireValidToken(),
+    );
   }
 
   SDKConnectSignalValidator createSignalValidator() {
@@ -40,6 +38,7 @@ class SdkSetup {
     required String localUserId,
     required String callId,
     required String peerId,
+    required SDKConnectCallType callType,
   }) {
     signaling.send(
       SDKConnectSignal(
@@ -47,6 +46,7 @@ class SdkSetup {
         callId: callId,
         fromUserId: peerId,
         toUserId: localUserId,
+        callType: callType,
       ),
     );
   }

@@ -1,38 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:sdk_connect/sdk_connect.dart';
 
-import 'incoming_call_screen.dart';
-
-class CallScreen extends StatelessWidget {
-  const CallScreen({
+class VoiceCallScreen extends StatelessWidget {
+  const VoiceCallScreen({
     super.key,
     required this.state,
-    required this.onAccept,
-    required this.onReject,
     required this.onEnd,
     required this.onToggleMute,
     required this.onToggleSpeaker,
   });
 
   final CallState state;
-  final Future<void> Function() onAccept;
-  final Future<void> Function() onReject;
   final Future<void> Function() onEnd;
   final Future<void> Function() onToggleMute;
   final Future<void> Function() onToggleSpeaker;
 
   @override
   Widget build(BuildContext context) {
-    if (state.phase == CallPhase.ringing) {
-      return IncomingCallScreen(
-        peerId: state.session?.peerId ?? 'Unknown',
-        onAccept: onAccept,
-        onReject: onReject,
-      );
-    }
-
+    final isConnected = state.phase == CallPhase.connected;
     return Scaffold(
-      appBar: AppBar(title: const Text('Active Call')),
+      appBar: AppBar(title: const Text('Voice Call')),
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -41,14 +28,12 @@ class CallScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 Icon(
-                  state.phase == CallPhase.connected
-                      ? Icons.call
-                      : Icons.phone_forwarded,
+                  isConnected ? Icons.call : Icons.phone_forwarded,
                   size: 56,
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  state.phase == CallPhase.connected
+                  isConnected
                       ? 'Connected to ${state.session?.peerId ?? 'Unknown'}'
                       : 'Calling ${state.session?.peerId ?? 'Unknown'}',
                   textAlign: TextAlign.center,
@@ -67,18 +52,12 @@ class CallScreen extends StatelessWidget {
                   alignment: WrapAlignment.center,
                   children: <Widget>[
                     OutlinedButton.icon(
-                      onPressed: state.phase == CallPhase.connected
-                          ? () => onToggleMute()
-                          : null,
-                      icon: Icon(
-                        state.isMuted ? Icons.mic_off : Icons.mic,
-                      ),
+                      onPressed: isConnected ? () => onToggleMute() : null,
+                      icon: Icon(state.isMuted ? Icons.mic_off : Icons.mic),
                       label: Text(state.isMuted ? 'Unmute' : 'Mute'),
                     ),
                     OutlinedButton.icon(
-                      onPressed: state.phase == CallPhase.connected
-                          ? () => onToggleSpeaker()
-                          : null,
+                      onPressed: isConnected ? () => onToggleSpeaker() : null,
                       icon: Icon(
                         state.isSpeakerOn ? Icons.volume_up : Icons.hearing,
                       ),
