@@ -167,6 +167,30 @@ Infrastructure (LiveKit / MQTT / API)
 - hide engine complexity  
 - provide voice/video as configuration, NOT separate logic  
 
+### ✅ REALTIME LIFECYCLE SAFETY
+
+When handling realtime/call features:
+
+- validate CallEngine state transitions
+- prevent invalid/repeated lifecycle operations
+- serialize critical operations:
+  - reconnect
+  - token refresh
+  - media recovery
+  - accept/reject/end
+- preserve session consistency during interruption/reconnect
+- handle app lifecycle internally if SDK provides UI
+- handle audio interruption and route recovery safely
+
+---
+
+### 🚫 FORBIDDEN
+
+- concurrent reconnect flows
+- duplicated async lifecycle operations
+- invalid CallEngine transitions
+- exposing platform lifecycle handling to consumers
+
 ---
 
 ## 🔐 Security Baseline

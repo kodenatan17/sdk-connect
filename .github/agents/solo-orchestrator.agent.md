@@ -70,6 +70,7 @@ From MEMORY KEYS:
 - SEC_TOKEN_REQUIRED → realtime-security-skill  
 - SEC_SIGNALING_VALIDATION → realtime-security-skill
 - SDK_ABSTRACTION_REQUIRED → sdk-abstraction-skill
+- CALL_LIFECYCLE_SDK → call-lifecycle-skill
 
 ---
 
