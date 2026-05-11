@@ -1,33 +1,44 @@
-# 🔄 Call Lifecycle Safety Skill
+# 🧩 realtime-lifecycle-safety-skill
 
 ## 🎯 Purpose
 
-Ensure SDKConnect maintains safe, deterministic, and production-grade realtime lifecycle behavior.
+Ensure SDKConnect maintains deterministic, production-grade realtime lifecycle and recovery behavior.
 
 ---
 
-## 🧠 Core Responsibilities
+## 🧠 Responsibilities
 
-- validate CallEngine state transitions
-- prevent invalid lifecycle operations
-- serialize critical async operations
-- handle reconnect and recovery safely
-- preserve media/session consistency
-- handle platform lifecycle interruptions
+- signaling/media lifecycle separation validation
+- reconnect and recovery validation
+- lifecycle restoration consistency
+- duplicate realtime flow prevention
+- state transition validation
+- operation serialization
+- interruption and app lifecycle recovery
 
 ---
 
-## 🔒 State Safety Rules (MANDATORY)
+## 🔒 Core Rules (MANDATORY)
 
-- CallEngine is the single source of truth (SSOT)
-- invalid state transitions MUST be rejected
-- repeated operations MUST be debounced
-- ended sessions MUST reject further actions
+- signaling lifecycle MUST remain outside SDKConnect
+- media lifecycle MUST remain inside CallEngine
+- CallEngine MUST remain SSOT
+- reconnect/recovery MUST remain deterministic
+- session consistency MUST survive reconnect/recovery
+- invalid lifecycle transitions MUST be rejected
 
-Examples:
-- reject acceptCall() after connected
-- reject toggleMute() after ended
-- reject duplicated reconnect attempts
+---
+
+## 📡 Realtime Lifecycle Validation
+
+Validate:
+
+- reconnect safety
+- recovery consistency
+- interruption recovery
+- lifecycle restoration
+- duplicate flow prevention
+- reconnect race-condition prevention
 
 ---
 
@@ -38,17 +49,26 @@ Critical operations MUST NOT run concurrently:
 - connect
 - reconnect
 - token refresh
-- accept/reject/end
 - media recovery
+- accept/reject/end
 
 Use:
-- operation queue
 - mutex
 - serialized execution
+- operation queue
 
 Goal:
-- prevent race conditions
-- preserve deterministic flow
+- deterministic flow
+- race-condition prevention
+
+---
+
+## 🔄 Recovery Rules
+
+- reconnect MUST restore active media session safely
+- reconnect MUST preserve participant/session consistency
+- reconnect MUST NOT create parallel sessions
+- recovery MUST remain under CallEngine ownership
 
 ---
 
@@ -61,7 +81,7 @@ SDK MUST internally handle:
 - temporary interruption
 
 Behavior:
-- preserve active call session
+- preserve active media session
 - restore media safely after resume
 - avoid unnecessary disconnects
 
@@ -73,10 +93,10 @@ Consumers MUST NOT manage realtime lifecycle manually.
 
 SDK MUST handle:
 
-- GSM calls
+- GSM interruption
 - alarms
-- Siri/assistant interruption
-- Bluetooth changes
+- assistant interruption
+- Bluetooth route changes
 
 Behavior:
 - pause/resume media safely
@@ -97,19 +117,24 @@ SDK MUST support:
 Behavior:
 - detect route changes automatically
 - preserve user-selected route
-- recover routes after reconnect/interruption
+- restore routes after reconnect/interruption
 
 ---
 
 ## 🚫 Forbidden
 
-- concurrent reconnect loops
+- mixed signaling/media lifecycle
+- duplicated reconnect orchestration
+- reconnect race conditions
+- recovery outside CallEngine ownership
+- duplicated realtime lifecycle handling
 - invalid lifecycle transitions
-- exposing platform lifecycle handling to consumers
+- concurrent reconnect loops
 - direct platform/media handling outside SDK
+- exposing platform lifecycle handling to consumers
 
 ---
 
 ## ✅ Goal
 
-SDKConnect behaves as a stable production-grade realtime communication SDK under unstable network, lifecycle interruption, and user interaction edge cases.
+Stable and production-grade realtime lifecycle architecture under unstable network, interruption, reconnect, and user interaction edge cases.
