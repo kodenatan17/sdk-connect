@@ -228,39 +228,75 @@ final sdk = SDKConnect.create(
 
 ## Example Usage
 
-The sample app is available in the `example/` folder with a feature-based structure:
+The sample app is available in the `example/` folder with a production-style feature-based structure:
 
 ```text
 example/
-  main.dart
-  video/
-    video_call_screen.dart
+  main.dart                        ← bootstrap + navigation only
+  config/
+    config_sdk.dart                ← SdkConfig: localUserId, peerId, credential providers
+  shared/
+    call_id_generator.dart         ← generateCallId() using Random.secure()
   voice/
-    voice_call_screen.dart
+    voice_call_screen.dart         ← signaling state + RemoteVoiceCallWidget
+  video/
+    video_call_screen.dart         ← signaling state + RemoteVideoCallWidget
 ```
 
 What the example demonstrates:
 
-- `main.dart` handles bootstrap and navigation only.
-- SDK initialization, token provider wiring, and callId generation are centralized and reused.
-- `voice/voice_call_screen.dart` starts a voice call through `SDKConnect` and renders `RemoteVoiceCallWidget`.
-- `video/video_call_screen.dart` starts a video call through `SDKConnect` and renders `RemoteVideoCallWidget`.
+- `main.dart` handles bootstrap and navigation only — no lifecycle logic.
+- `config/config_sdk.dart` centralises all SDK configuration (`SdkConfig`). No config is duplicated across screens.
+- `shared/call_id_generator.dart` provides a single `generateCallId()` utility used by both screens.
+- `voice/voice_call_screen.dart` manages external signaling state (`dialing / ringing / rejected`) and delegates active-call rendering to `RemoteVoiceCallWidget` with all four callbacks wired.
+- `video/video_call_screen.dart` mirrors voice but uses `SDKConnectCallType.video` and `RemoteVideoCallWidget`.
+- Widget callbacks (`onCallStateChanged`, `onReconnect`, `onDisconnected`, `onEnded`) are wired at screen level. Widgets are pure observers — no lifecycle logic inside widgets.
 - Consumer code stays on SDKConnect APIs/widgets only (no direct LiveKit usage).
 - P2P contract is preserved (max 2 participants).
 
-Small navigation snippet (main -> feature screens):
+### UI State Aggregation
+
+| SDKConnect State | Widget Phase |
+|---|---|
+| `connecting` | `CALLING` (dialing / ringing) |
+| `connected` / `reconnecting` | `CONNECTED` |
+| `disconnected` / `failed` | `ENDED` |
+
+### Widget Callbacks
 
 ```dart
-final sdk = SDKConnect.create(
-  localUserId: 'user-a',
-  tokenProvider: yourTokenProvider,
+RemoteVoiceCallWidget(
+  sdk: sdk,
+  callbacks: SDKConnectWidgetCallbacks(
+    onCallStateChanged: (phase) { /* SDKConnectWidgetPhase */ },
+    onReconnect: () { /* fired once per reconnect entry */ },
+    onDisconnected: (reason) { /* network / remote hang-up */ },
+    onEnded: (reason) { /* terminal — fires exactly once */ },
+  ),
 );
+```
 
+The same `SDKConnectWidgetCallbacks` applies to `RemoteVideoCallWidget`.
+
+### Signaling Boundary in Screens
+
+Signaling states (`dialing`, `ringing`, `rejected`) are managed at screen level, external to SDKConnect:
+
+```dart
+enum _SignalingState { idle, dialing, ringing, rejected }
+```
+
+SDKConnect takes over once `startCall` is invoked and media negotiation begins. The screen switches to the SDK widget automatically when `connectionState` reaches `connecting`.
+
+### Navigation Snippet
+
+```dart
 Navigator.of(context).push(
   MaterialPageRoute<void>(
     builder: (_) => VoiceCallScreen(
       sdk: sdk,
-      createCallId: createCallId,
+      createCallId: generateCallId,
+      peerId: SdkConfig.defaultPeerId,
     ),
   ),
 );
@@ -269,7 +305,8 @@ Navigator.of(context).push(
   MaterialPageRoute<void>(
     builder: (_) => VideoCallScreen(
       sdk: sdk,
-      createCallId: createCallId,
+      createCallId: generateCallId,
+      peerId: SdkConfig.defaultPeerId,
     ),
   ),
 );
@@ -277,7 +314,7 @@ Navigator.of(context).push(
 
 ### How to Run
 
-1. Use runtime values (do not hardcode secrets in source files).
+1. Use runtime values — do not hardcode secrets in source files.
 2. Run with `dart-define`:
 
 ```bash

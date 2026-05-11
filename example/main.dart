@@ -1,9 +1,10 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:sdk_connect/sdk_connect.dart';
 
+import 'config/config_sdk.dart';
+import 'shared/call_id_generator.dart';
 import 'video/video_call_screen.dart';
 import 'voice/voice_call_screen.dart';
 
@@ -25,6 +26,8 @@ class ExampleApp extends StatelessWidget {
   }
 }
 
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+
 class _SdkBootstrapScreen extends StatefulWidget {
   const _SdkBootstrapScreen();
 
@@ -45,8 +48,8 @@ class _SdkBootstrapScreenState extends State<_SdkBootstrapScreen> {
   Future<void> _initializeSdk() async {
     try {
       final sdk = SDKConnect.create(
-        localUserId: _ExampleConfig.localUserId,
-        tokenProvider: _createTokenProvider(),
+        localUserId: SdkConfig.localUserId,
+        tokenProvider: _tokenProvider,
       );
 
       if (!mounted) {
@@ -54,53 +57,37 @@ class _SdkBootstrapScreenState extends State<_SdkBootstrapScreen> {
         return;
       }
 
-      setState(() {
-        _sdk = sdk;
-      });
+      setState(() => _sdk = sdk);
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _bootstrapError = error;
-      });
+      if (!mounted) return;
+      setState(() => _bootstrapError = error);
     }
+  }
+
+  Future<SDKConnectCredentials> _tokenProvider(SDKConnectTokenRequest _) async {
+    return SDKConnectCredentials(
+      roomUrl: SdkConfig.requireValidRoomUrl(),
+      token: SdkConfig.requireValidToken(),
+    );
   }
 
   @override
   void dispose() {
     final sdk = _sdk;
-    if (sdk != null) {
-      unawaited(sdk.dispose());
-    }
+    if (sdk != null) unawaited(sdk.dispose());
     super.dispose();
-  }
-
-  SDKConnectTokenProvider _createTokenProvider() {
-    return (_) async => SDKConnectCredentials(
-      roomUrl: _ExampleConfig.requireValidRoomUrl(),
-      token: _ExampleConfig.requireValidToken(),
-    );
-  }
-
-  String _createCallId() {
-    final random = Random.secure();
-    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
-    final hex = bytes
-        .map((value) => value.toRadixString(16).padLeft(2, '0'))
-        .join();
-    return 'call_$hex';
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_bootstrapError != null) {
+    final error = _bootstrapError;
+    if (error != null) {
       return Scaffold(
         appBar: AppBar(title: const Text('SDK Connect Example')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text('Initialization failed: $_bootstrapError'),
+            child: Text('Initialization failed: $error'),
           ),
         ),
       );
@@ -108,27 +95,21 @@ class _SdkBootstrapScreenState extends State<_SdkBootstrapScreen> {
 
     final sdk = _sdk;
     if (sdk == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('SDK Connect Example')),
-        body: const Center(child: CircularProgressIndicator()),
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
-    return _ExampleHomeScreen(
-      sdk: sdk,
-      createCallId: _createCallId,
-    );
+    return _HomeScreen(sdk: sdk);
   }
 }
 
-class _ExampleHomeScreen extends StatelessWidget {
-  const _ExampleHomeScreen({
-    required this.sdk,
-    required this.createCallId,
-  });
+// ── Home ──────────────────────────────────────────────────────────────────────
+
+class _HomeScreen extends StatelessWidget {
+  const _HomeScreen({required this.sdk});
 
   final SDKConnect sdk;
-  final String Function() createCallId;
 
   @override
   Widget build(BuildContext context) {
@@ -146,37 +127,33 @@ class _ExampleHomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Choose a feature screen. The SDK instance is initialized once and reused.',
+                'Choose a feature screen. The SDK instance is initialised once and reused.',
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => VoiceCallScreen(
-                        sdk: sdk,
-                        createCallId: createCallId,
-                      ),
-                    ),
-                  );
-                },
+                onPressed: () => _navigate(
+                  context,
+                  VoiceCallScreen(
+                    sdk: sdk,
+                    createCallId: generateCallId,
+                    peerId: SdkConfig.defaultPeerId,
+                  ),
+                ),
                 icon: const Icon(Icons.call),
-                label: const Text('Voice Feature'),
+                label: const Text('Voice Call'),
               ),
               const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => VideoCallScreen(
-                        sdk: sdk,
-                        createCallId: createCallId,
-                      ),
-                    ),
-                  );
-                },
+                onPressed: () => _navigate(
+                  context,
+                  VideoCallScreen(
+                    sdk: sdk,
+                    createCallId: generateCallId,
+                    peerId: SdkConfig.defaultPeerId,
+                  ),
+                ),
                 icon: const Icon(Icons.videocam),
-                label: const Text('Video Feature'),
+                label: const Text('Video Call'),
               ),
             ],
           ),
@@ -184,34 +161,10 @@ class _ExampleHomeScreen extends StatelessWidget {
       ),
     );
   }
-}
 
-class _ExampleConfig {
-  static const String localUserId = 'demo-user-a';
-
-  static const String _roomUrl = String.fromEnvironment(
-    'SDK_CONNECT_ROOM_URL',
-    defaultValue: '',
-  );
-
-  static const String _token = String.fromEnvironment(
-    'SDK_CONNECT_ACCESS_TOKEN',
-    defaultValue: '',
-  );
-
-  static String requireValidRoomUrl() {
-    final value = _roomUrl.trim();
-    if (value.isEmpty) {
-      throw StateError('Missing SDK_CONNECT_ROOM_URL');
-    }
-    return value;
-  }
-
-  static String requireValidToken() {
-    final value = _token.trim();
-    if (value.isEmpty) {
-      throw StateError('Missing SDK_CONNECT_ACCESS_TOKEN');
-    }
-    return value;
+  void _navigate(BuildContext context, Widget screen) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => screen),
+    );
   }
 }
