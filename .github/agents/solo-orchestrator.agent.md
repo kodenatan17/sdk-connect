@@ -223,9 +223,9 @@ Ticket:
 
 ---
 
-# 🧠 Memory Update
+# 🧠 Mandatory Memory Persistence (CRITICAL)
 
-After PASS:
+After reviewer PASS and security PASS:
 
 CALL:
 mbg-memory-system
@@ -233,9 +233,29 @@ mbg-memory-system
 update memory:
 
 feature: [feature]
-agents: [agents]
-skills: [skills]
+agents: [used agents]
+skills: [used skills]
 outcome: success
+
+---
+
+## Memory Rules
+
+- MUST update session.memory.json
+- MUST merge new architecture/security/runtime invariants into project.memory.json
+- MUST NOT overwrite unrelated memory
+- MUST persist new lifecycle/recovery/security rules discovered during implementation
+
+---
+
+## 🚫 Forbidden
+
+- DO NOT finish workflow before memory update
+- DO NOT skip memory persistence for fixes/refactors
+- DO NOT mark task COMPLETE without successful memory update
+
+If memory update fails:
+→ STATUS = MEMORY_UPDATE_FAILED
 
 ---
 

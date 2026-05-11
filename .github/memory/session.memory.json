@@ -1,5 +1,5 @@
 {
-  "feature": "SDKConnect media/session-only architecture refactor (remove signaling ownership from SDK/engine)",
+  "feature": "SDKConnect connection-loss deduplication and widget lifecycle purity refactor",
   "agents": [
     "mbg-memory-system",
     "joko-builder",
@@ -8,8 +8,12 @@
     "kang-commit"
   ],
   "skills": [
-    "flutter-architecture-skill"
+    "sdkconnect-consumer-skill",
+    "call-engine-skill",
+    "realtime-lifecycle-safety-skill",
+    "realtime-flow-review-skill",
+    "p2p-session-security-skill"
   ],
   "outcome": "success",
-  "round": 11
+  "round": 12
 }

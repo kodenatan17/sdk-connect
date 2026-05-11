@@ -304,5 +304,40 @@
       "P2P call model must enforce a maximum of 2 participants",
       "Scaling beyond 2 requires a different topology contract (e.g., SFU)"
     ]
+  },
+  "ARCH_CONNECTION_LOSS_SINGLE_SOURCE_V1": {
+    "description": "Connection-loss signaling is centralized and emitted from a single terminal lifecycle source",
+    "rules": [
+      "onConnectionLost must not be emitted from multiple reconnect or participant-leave paths",
+      "Terminal disconnect callbacks must be deduplicated",
+      "Connection-loss emission must remain lifecycle-state driven"
+    ]
+  },
+
+  "ARCH_WIDGET_RENDER_PURITY_V1": {
+    "description": "SDKConnect widgets must remain render-only and avoid realtime lifecycle side effects in build paths",
+    "rules": [
+      "Widget build methods must not trigger lifecycle side effects",
+      "Call-ended callbacks must be handled through listeners/subscriptions",
+      "Realtime lifecycle orchestration must remain outside widget rendering"
+    ]
+  },
+
+  "ARCH_REMOTE_PARTICIPANT_TERMINATION_V1": {
+    "description": "Remote participant leave is treated as terminal session termination instead of reconnect scenario",
+    "rules": [
+      "Remote participant leave must immediately terminate active session",
+      "Participant leave must not trigger reconnect flow",
+      "Session teardown must remain deterministic after remote leave"
+    ]
+  },
+
+  "ARCH_TERMINAL_EVENT_DEDUP_V1": {
+    "description": "Terminal lifecycle callbacks are protected against duplicate emission",
+    "rules": [
+      "Disconnected/ended terminal callbacks must emit once per lifecycle termination",
+      "Reconnect-failed and participant-left paths must not duplicate terminal callbacks",
+      "Lifecycle terminal emission uses fingerprint/guard protection"
+    ]
   }
 }
