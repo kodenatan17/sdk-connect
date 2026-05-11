@@ -2,14 +2,39 @@
 
 Flutter call SDK with a single `CallEngine` lifecycle, internal media orchestration, and a plug-and-play `SDKConnect` public API.
 
-Production reliability is included: auto reconnect, signaling + ICE recovery hooks, silent token refresh, adaptive audio-priority fallback, configurable network thresholds, app lifecycle handling, interruption recovery, and audio route management.
+Production reliability is included: auto reconnect, ICE recovery hooks, silent token refresh, adaptive audio-priority fallback, configurable network thresholds, app lifecycle handling, interruption recovery, and audio route management.
+
+## Update (Media/Session Refactor)
+
+SDKConnect has been refactored into a pure media/session SDK architecture.
+
+### Before vs After
+
+| Area | Before | After |
+|---|---|---|
+| SDK lifecycle ownership | SDK handled signaling + media lifecycle | SDK handles media/session lifecycle only |
+| Lifecycle phases | `idle`, `dialing`, `ringing`, `connected`, `ended` | `idle`, `connecting`, `connected`, `reconnecting`, `disconnected`, `failed` |
+| Signaling in SDK API | `signaling`, `signalValidator`, `SDKConnectSignal` in public API | Removed from SDK public API |
+| Invite / accept / reject ownership | Owned by SDK / `CallEngine` | External signaling layer owns invitation lifecycle |
+| Engine authority | Mixed lifecycle responsibilities | `CallEngine` is strict SSOT for media/session state |
+| Transport coupling | Included signaling contract in SDK | Transport-agnostic SDK core |
+| Reconnect reliability | Present | Preserved with in-flight dedup and strict transitions |
+| P2P enforcement | Present | Preserved (`max 2` participants) |
+
+### Migration Summary
+
+- Keep using `SDKConnect` as the main app facade.
+- Remove signaling transport wiring from SDK initialization.
+- Handle invite/accept/reject in your app signaling layer.
+- Call `startCall` (or `CallEngine.connectSession`) only when you are ready to start/join media.
+- Treat SDK lifecycle as media/session lifecycle, not signaling lifecycle.
 
 ## Design Goals
 
 - `CallEngine` remains the single source of truth for call lifecycle and controls.
 - `SDKConnect` is the main app-facing entry point.
 - LiveKit stays fully hidden behind the SDK and media abstraction.
-- Voice works now; video fits the same API shape later.
+- Voice and video use the same lifecycle model.
 - P2P only: maximum 2 participants per room.
 
 ## Installation
@@ -36,9 +61,7 @@ flutter pub get
 ```dart
 final sdk = SDKConnect.create(
   localUserId: currentUserId,
-  signaling: yourSignalingTransport,
   tokenProvider: yourTokenProvider,
-  signalValidator: yourSignalValidator,
   reliability: const SDKConnectReliabilityConfig(
     reconnectPolicy: CallReconnectPolicy(),
     networkThresholds: CallNetworkThresholds(),
@@ -58,8 +81,6 @@ final sdk = SDKConnect.create(
 ```dart
 Future<void> initialize({String? localUserId})
 Future<void> startCall({required String peerId, String? callId, SDKConnectCallType callType = SDKConnectCallType.voice})
-Future<void> acceptCall({SDKConnectCallType? callType})
-Future<void> rejectCall({String reason = 'rejected'})
 Future<void> endCall({String reason = 'ended_by_user'})
 Future<void> setMuted(bool muted)
 Future<void> toggleMute()
@@ -70,7 +91,14 @@ Future<void> toggleCamera()
 Future<void> dispose()
 ```
 
-### Callbacks And Events
+Removed from ownership (deprecated/throws):
+
+```dart
+Future<void> acceptCall({SDKConnectCallType? callType})
+Future<void> rejectCall({String reason = 'rejected'})
+```
+
+### Callbacks and Events
 
 ```dart
 SDKConnectCallbacks(
@@ -82,33 +110,15 @@ SDKConnectCallbacks(
 )
 ```
 
-- `SDKConnectUserEvent`: outgoing started, incoming received, accepted, rejected, ended, P2P limit exceeded.
-- `SDKConnectConnectionEvent`: initializing, ready, lifecycleChanged, dialing, ringing, connected, interruptionStarted, interruptionRecovered, mediaSessionRestored, audioRouteChanged, reconnecting, recovered, iceRecoveryStarted, iceRecovered, networkDegraded, networkRecovered, ended, idle.
-- `SDKConnectErrorEvent`: operation, error, stack trace.
+- `SDKConnectUserEvent`: outgoing started, ended, P2P limit exceeded.
+- `SDKConnectConnectionEvent`: initializing, ready, lifecycleChanged, connecting, connected, reconnecting, recovered, disconnected, failed, interruptionStarted, interruptionRecovered, mediaSessionRestored, audioRouteChanged, iceRecoveryStarted, iceRecovered, networkDegraded, networkRecovered, idle.
+- `SDKConnectErrorEvent`: operation, sanitized error.
 - `SDKConnectTokenEvent`: requested, resolved, refreshRequested, refreshed, refreshFailed, failed.
 - `sdk.events`: unified stream of all SDK events.
 
-### Signals And Token Input
+### Token Input and Reliability Types
 
 ```dart
-class SDKConnectSignal {
-  final SDKConnectSignalType type;
-  final String callId;
-  final String fromUserId;
-  final String toUserId;
-  final SDKConnectCallType callType;
-  final String? reason;
-}
-
-enum SDKConnectSignalType {
-  invite,
-  accept,
-  reject,
-  end,
-  recover,
-  iceRestart,
-}
-
 class SDKConnectTokenRequest {
   final String callId;
   final String peerId;
@@ -147,37 +157,52 @@ class CallNetworkThresholds {
 }
 ```
 
+## Lifecycle Contract (Media/Session Only)
+
+- `idle`
+- `connecting`
+- `connected`
+- `reconnecting`
+- `disconnected`
+- `failed`
+
 ## Reliability Behavior
 
 - Preserves active `CallEngine` session while reconnecting.
-- Uses grace timeout before ending call on sustained network loss.
+- Uses grace timeout before failing call on sustained network loss.
 - Prevents reconnect loops with cooldown + bounded backoff.
 - Deduplicates concurrent reconnect attempts and token refresh calls.
 - Emits reconnect and recovery events.
-- Supports ICE recovery signaling hooks.
+- Supports ICE recovery hooks.
 - Silently refreshes near-expiry tokens; concurrent refresh calls share a single in-flight future.
 - Automatically downgrades to audio-priority on weak network.
 - Automatically recovers to balanced profile when network is stable.
 
 ## Lifecycle Safety
 
-- All state-mutating operations are serialized through an internal operation queue — no concurrent state mutations are possible.
-- Strict finite-state machine transitions are enforced on every phase change; invalid transitions throw `CallLifecycleException`.
+- All state-mutating operations are serialized through an internal operation queue.
+- Strict finite-state transitions are enforced; invalid transitions throw `CallLifecycleException`.
 - Repeated identical actions are debounced automatically (350 ms window).
-- App lifecycle is observed internally by `VoiceCallSdk` via `WidgetsBindingObserver` — no manual wiring required.
-- When the app moves to background (paused / inactive / hidden), an `interruptionStarted` event is emitted.
-- When the app returns to foreground after an interruption, media session state (mute, speaker, camera) is automatically restored and `interruptionRecovered` + `mediaSessionRestored` events are emitted.
-- Audio route changes (earpiece ↔ speaker ↔ bluetooth ↔ wired) are tracked internally and surfaced as `audioRouteChanged` events.
-- Signaling replay-deduplication cache is bounded to 512 entries with LRU eviction and is cleared on every idle transition.
+- App lifecycle is observed internally by `VoiceCallSdk` via `WidgetsBindingObserver`.
+- On app background transitions, interruption events are emitted.
+- On resume, media session state (mute/speaker/camera) is restored automatically.
+- Audio route changes are tracked and surfaced as connection events.
 
-### Recommended Reliability Preset
+## External Signaling Boundary
+
+Signaling is intentionally outside SDK ownership.
+
+- Your app/backend signaling layer validates invite/accept/reject messages.
+- Your app decides when media should start/join.
+- SDK starts media via `startCall` (or lower-level `CallEngine.connectSession`).
+- SDK does not expose LiveKit directly.
+
+## Recommended Reliability Preset
 
 ```dart
 final sdk = SDKConnect.create(
   localUserId: currentUserId,
-  signaling: yourSignalingTransport,
   tokenProvider: yourTokenProvider,
-  signalValidator: yourSignalValidator,
   reliability: const SDKConnectReliabilityConfig(
     reconnectPolicy: CallReconnectPolicy(
       enabled: true,
@@ -208,17 +233,20 @@ The sample app is available in the `example/` folder with this structure:
 ```text
 example/
   main.dart
-  app.dart
-  call_screen.dart
-  incoming_call_screen.dart
-  sdk_setup.dart
+  call_screen/
+    incoming_call_screen.dart
+  config/
+    config_sdk.dart
+  video/
+    video_call_screen.dart
+  voice/
+    voice_call_screen.dart
 ```
 
-### How To Run
+### How to Run
 
 1. Use runtime values (do not hardcode secrets in source files).
-2. Start a Flutter app that uses these `example/` files as entry source.
-3. Run with `dart-define`:
+2. Run with `dart-define`:
 
 ```bash
 flutter run \
@@ -226,19 +254,14 @@ flutter run \
   --dart-define=SDK_CONNECT_ACCESS_TOKEN=your-short-lived-token
 ```
 
-### Flow: Init -> Call -> End
+### Flow: Init -> Call -> End (Media Session)
 
-1. Create the self-contained SDK facade:
+1. Create SDK facade:
 
 ```dart
-const setup = SdkSetup();
-final signaling = setup.createDemoSignaling();
-
 final sdk = SDKConnect.create(
   localUserId: 'user-a',
-  signaling: signaling,
-  tokenProvider: setup.createTokenProvider(),
-  signalValidator: setup.createSignalValidator(),
+  tokenProvider: yourTokenProvider,
   callbacks: SDKConnectCallbacks(
     onEvent: (event) {},
     onUser: (event) {},
@@ -249,29 +272,13 @@ final sdk = SDKConnect.create(
 );
 ```
 
-2. Start outgoing call with SDK-only input:
+2. Start outgoing media session:
 
 ```dart
 await sdk.startCall(callId: 'call-123', peerId: 'peer-b');
 ```
 
-The SDK requests credentials internally through `tokenProvider`, connects media,
-and handles the remote accept signal internally.
-
-3. Receive incoming call through signaling and accept:
-
-```dart
-setup.simulateIncomingForDemo(
-  signaling: signaling,
-  localUserId: 'user-a',
-  callId: 'call-456',
-  peerId: 'peer-a',
-);
-
-await sdk.acceptCall();
-```
-
-4. In-call controls (mute, speaker, end):
+3. In-call controls:
 
 ```dart
 await sdk.setMuted(true);
@@ -279,77 +286,11 @@ await sdk.setSpeakerOn(true);
 await sdk.endCall(reason: 'ended_by_user');
 ```
 
-### Key Snippets
-
-- Self-contained SDK init:
-
-```dart
-final sdk = SDKConnect.create(
-  localUserId: currentUserId,
-  signaling: yourSignalingTransport,
-  tokenProvider: yourTokenProvider,
-  signalValidator: yourSignalValidator,
-  reliability: const SDKConnectReliabilityConfig(),
-);
-```
-
-- Unified callback surface:
-
-```dart
-SDKConnectCallbacks(
-  onEvent: (event) {
-    // unified stream callback for analytics or logging
-  },
-  onUser: (event) {
-    // incoming, accepted, rejected, ended, p2p-limit
-  },
-  onConnection: (event) {
-    // ready, dialing, ringing, connected,
-    // interruptionStarted, interruptionRecovered, mediaSessionRestored, audioRouteChanged,
-    // lifecycleChanged, reconnecting, recovered, iceRecoveryStarted, iceRecovered,
-    // networkDegraded, networkRecovered, ended, idle
-  },
-  onError: (event) {
-    // operation + error payload
-  },
-  onToken: (event) {
-    // requested, resolved, refreshRequested, refreshed, refreshFailed, failed
-  },
-);
-```
-
-- Trusted signaling validation:
-
-```dart
-final yourSignalValidator = (SDKConnectSignal signal) async {
-  return signal.toUserId == currentUserId &&
-      trustedPeerIds.contains(signal.fromUserId);
-};
-```
-
-- P2P enforcement handling:
-
-```dart
-try {
-  await sdk.startCall(peerId: 'peer-b');
-} on P2PLimitExceededException {
-  // Room has more than 2 participants.
-}
-```
-
-## Voice To Video Mapping
-
-- Keep `SDKConnect` as the only entry point.
-- Keep `startCall`, `acceptCall`, callbacks, and `sdk.events` unchanged.
-- Use `SDKConnectCallType.voice` today and add `SDKConnectCallType.video` later.
-- Keep `SDKConnectSignal`, `SDKConnectTokenRequest`, and `SDKConnectUserEvent` media-type aware now so video support lands without renaming methods or event channels.
-- Add video-specific controls as additive APIs only when needed; existing voice flows remain valid.
-
 ## Notes
 
-- Provide a signaling transport implementation that carries `SDKConnectSignal` messages.
+- Provide signaling/invitation orchestration in your application/backend layer.
 - Provide a short-lived backend token provider that returns `SDKConnectCredentials`.
-- Validate signaling sender identity and call ownership before the SDK processes events.
+- Validate signaling sender identity and call ownership before calling SDK media APIs.
 - Keep tokens backend-issued and short-lived; never persist token strings to logs or analytics.
 - Do not bypass SDK abstractions by using LiveKit directly in UI/application code.
 - Group call is intentionally rejected by design (P2P only).

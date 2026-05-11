@@ -1,7 +1,8 @@
 enum CallPhase {
   idle,
-  dialing,
-  ringing,
+  connecting,
   connected,
-  ended,
+  reconnecting,
+  disconnected,
+  failed,
 }

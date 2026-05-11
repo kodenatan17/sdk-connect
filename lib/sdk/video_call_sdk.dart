@@ -39,20 +39,15 @@ class VideoCallSdk {
   }
 
   Future<void> acceptCall() async {
-    final sessionType = _callEngine.state.session?.callType;
-    if (sessionType == CallType.voice) {
-      throw CallLifecycleException(
-        'Incoming call is voice. Use VoiceCallSdk or SDKConnect.voice to accept it.',
-      );
-    }
-    await _voiceSdk.acceptCall();
-    if (sessionType == CallType.video) {
-      await _callEngine.setVideoEnabled(true);
-    }
+    throw CallLifecycleException(
+      'acceptCall is removed from VideoCallSdk. Signaling/invitation flow is handled externally.',
+    );
   }
 
   Future<void> rejectCall({String reason = 'rejected'}) {
-    return _voiceSdk.rejectCall(reason: reason);
+    throw CallLifecycleException(
+      'rejectCall is removed from VideoCallSdk. Signaling/invitation flow is handled externally.',
+    );
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) {

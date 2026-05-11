@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 import 'package:sdk_connect/sdk_connect.dart';
 
-import 'call_screen/incoming_call_screen.dart';
 import 'config/config_sdk.dart';
 import 'video/video_call_screen.dart';
 import 'voice/voice_call_screen.dart';
@@ -39,7 +38,6 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   final ConfigSdk _config = const ConfigSdk();
 
   SDKConnect? _sdk;
-  InMemorySDKConnectSignalingTransport? _signaling;
   Object? _error;
 
   @override
@@ -50,28 +48,25 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
 
   Future<void> _initializeSdk() async {
     try {
-      final signaling = _config.createDemoSignaling();
       final sdk = SDKConnect.create(
         localUserId: ConfigSdk.localUserId,
-        signaling: signaling,
         tokenProvider: _config.createTokenProvider(),
-        signalValidator: _config.createSignalValidator(),
         callbacks: SDKConnectCallbacks(
           onUser: (event) {
             if (!mounted) {
               return;
             }
             switch (event.type) {
-              case SDKConnectUserEventType.incomingReceived:
               case SDKConnectUserEventType.outgoingStarted:
-              case SDKConnectUserEventType.accepted:
                 break;
-              case SDKConnectUserEventType.rejected:
-                _showMessage('Call rejected: ${event.reason ?? 'rejected'}');
               case SDKConnectUserEventType.ended:
                 _showMessage('Call ended: ${event.reason ?? 'ended'}');
               case SDKConnectUserEventType.p2pLimitExceeded:
                 _showMessage('P2P only: max 2 participants per room.');
+              case SDKConnectUserEventType.incomingReceived:
+              case SDKConnectUserEventType.accepted:
+              case SDKConnectUserEventType.rejected:
+                break;
             }
           },
           onError: (event) {
@@ -90,7 +85,6 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
 
       setState(() {
         _sdk = sdk;
-        _signaling = signaling;
       });
     } catch (error) {
       if (!mounted) {
@@ -142,69 +136,6 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
       _showMessage('Missing SDK runtime configuration.');
     } catch (_) {
       _showMessage('Failed to start outgoing video call.');
-    }
-  }
-
-  void _simulateIncomingVoiceCall() {
-    _simulateIncomingCall(SDKConnectCallType.voice);
-  }
-
-  void _simulateIncomingVideoCall() {
-    _simulateIncomingCall(SDKConnectCallType.video);
-  }
-
-  void _simulateIncomingCall(SDKConnectCallType callType) {
-    final signaling = _signaling;
-    if (signaling == null) {
-      return;
-    }
-
-    try {
-      _config.simulateIncomingForDemo(
-        signaling: signaling,
-        localUserId: ConfigSdk.localUserId,
-        callId: _randomCallId(),
-        peerId: 'peer-a',
-        callType: callType,
-      );
-    } catch (_) {
-      _showMessage('Cannot receive incoming call right now.');
-    }
-  }
-
-  Future<void> _acceptIncoming() async {
-    final sdk = _sdk;
-    if (sdk == null) {
-      return;
-    }
-
-    final incomingType = sdk.state.session?.callType;
-
-    try {
-      if (incomingType == CallType.video) {
-        await sdk.video.acceptCall();
-      } else {
-        await sdk.voice.acceptCall();
-      }
-    } on P2PLimitExceededException {
-      _showMessage('P2P only: room already has more than 2 participants.');
-    } on StateError {
-      _showMessage('Missing SDK runtime configuration.');
-    } catch (_) {
-      _showMessage('Failed to accept incoming call.');
-    }
-  }
-
-  Future<void> _rejectIncoming() async {
-    final sdk = _sdk;
-    if (sdk == null) {
-      return;
-    }
-
-    try {
-      await sdk.rejectCall(reason: 'rejected_by_user');
-    } catch (_) {
-      _showMessage('Failed to reject incoming call.');
     }
   }
 
@@ -270,17 +201,6 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
           return _IdleScreen(
             onStartOutgoingVoice: _startOutgoingVoiceCall,
             onStartOutgoingVideo: _startOutgoingVideoCall,
-            onSimulateIncomingVoice: _simulateIncomingVoiceCall,
-            onSimulateIncomingVideo: _simulateIncomingVideoCall,
-          );
-        }
-
-        if (state.phase == CallPhase.ringing) {
-          return IncomingCallScreen(
-            peerId: state.session?.peerId ?? 'Unknown',
-            callType: state.session?.callType ?? CallType.voice,
-            onAccept: _acceptIncoming,
-            onReject: _rejectIncoming,
           );
         }
 
@@ -310,14 +230,10 @@ class _IdleScreen extends StatelessWidget {
   const _IdleScreen({
     required this.onStartOutgoingVoice,
     required this.onStartOutgoingVideo,
-    required this.onSimulateIncomingVoice,
-    required this.onSimulateIncomingVideo,
   });
 
   final Future<void> Function() onStartOutgoingVoice;
   final Future<void> Function() onStartOutgoingVideo;
-  final VoidCallback onSimulateIncomingVoice;
-  final VoidCallback onSimulateIncomingVideo;
 
   @override
   Widget build(BuildContext context) {
@@ -351,18 +267,6 @@ class _IdleScreen extends StatelessWidget {
                   onPressed: () => onStartOutgoingVideo(),
                   icon: const Icon(Icons.videocam),
                   label: const Text('Start Outgoing Video Call'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: onSimulateIncomingVoice,
-                  icon: const Icon(Icons.ring_volume),
-                  label: const Text('Simulate Incoming Voice Call'),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: onSimulateIncomingVideo,
-                  icon: const Icon(Icons.video_call),
-                  label: const Text('Simulate Incoming Video Call'),
                 ),
               ],
             ),

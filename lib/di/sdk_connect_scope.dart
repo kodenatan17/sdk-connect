@@ -38,17 +38,13 @@ class SdkConnectScope {
 
   VoiceCallSdk createVoiceCallSdk({
     required String localUserId,
-    required VoiceCallSignalingTransport signaling,
     required VoiceCallTokenProvider tokenProvider,
-    required VoiceCallSignalValidator signalValidator,
     VoiceCallCallbacks callbacks = const VoiceCallCallbacks(),
   }) {
     return VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
-      signaling: signaling,
       tokenProvider: tokenProvider,
-      signalValidator: signalValidator,
       callbacks: callbacks,
     );
   }

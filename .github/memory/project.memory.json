@@ -6,7 +6,10 @@
     "RULE_SSOT_REQUIRED",
     "RULE_TOKEN_REQUIRED",
     "RULE_SDK_ONLY_USAGE_V1",
-    "RULE_P2P_MAX_2_V1"
+    "RULE_P2P_MAX_2_V1",
+    "RULE_LIFECYCLE_PHASES_ENFORCED_V1",
+    "RULE_NO_SDK_SIGNALING_OWNERSHIP_V1",
+    "RULE_CALL_ENGINE_SSOT_REQUIRED_V3"
   ],
   "SDK_ABSTRACTION_REQUIRED": {
   "description": "SDK must abstract LiveKit into a simple consumer API",
@@ -252,6 +255,54 @@
       "SDK configuration is centralized in example/config/config_sdk.dart",
       "Incoming call UI is isolated in example/call_screen/incoming_call_screen.dart",
       "Voice and video call screens live in example/voice/voice_call_screen.dart and example/video/video_call_screen.dart"
+    ]
+  },
+  "ARCH_MEDIA_SESSION_ONLY_OWNERSHIP_V1": {
+    "description": "SDKConnect architecture enforces media/session ownership in SDK facade and CallEngine while removing signaling ownership from SDK and engine layers",
+    "rules": [
+      "SDK and CallEngine do not own signaling transport or signaling orchestration",
+      "CallEngine remains the SSOT for call lifecycle and state transitions",
+      "Lifecycle phases are strictly limited to idle, connecting, connected, reconnecting, disconnected, failed",
+      "Media/session orchestration remains internal while signaling integration is externalized"
+    ]
+  },
+  "ARCH_CALL_ENGINE_SSOT_V3": {
+    "description": "CallEngine is the authoritative single source of truth for runtime call state",
+    "rules": [
+      "No facade, SDK wrapper, or signaling adapter duplicates lifecycle ownership",
+      "All lifecycle transitions and state mutations are derived from CallEngine",
+      "Public callbacks and events reflect engine state instead of creating parallel state"
+    ]
+  },
+  "ARCH_LIFECYCLE_PHASE_SET_V1": {
+    "description": "Allowed lifecycle phases are fixed and enforced for interoperability and safety",
+    "rules": [
+      "Allowed phases: idle, connecting, connected, reconnecting, disconnected, failed",
+      "No additional implicit phases are introduced by wrappers or adapters",
+      "Transition guards must reject unknown or out-of-contract phase changes"
+    ]
+  },
+  "ARCH_RECONNECT_REFRESH_DEDUP_V2": {
+    "description": "Reconnect and token refresh paths are deduplicated to avoid race conditions",
+    "rules": [
+      "Concurrent reconnect attempts are coalesced into a single in-flight operation",
+      "Concurrent token refresh requests share one in-flight future/promise",
+      "Dedup guards are reset only after operation completion or terminal failure"
+    ]
+  },
+  "SEC_PUBLIC_ERROR_SANITIZATION_V1": {
+    "description": "Errors emitted through public callbacks/events are sanitized before exposure",
+    "rules": [
+      "No raw internal exceptions or sensitive payload fragments are exposed publicly",
+      "Public error events use stable, non-sensitive codes/messages",
+      "Sanitization applies to callback, stream, and event-based public surfaces"
+    ]
+  },
+  "RULE_P2P_MAX_2_ENFORCED_V1": {
+    "description": "Peer-to-peer sessions are limited to two participants",
+    "rules": [
+      "P2P call model must enforce a maximum of 2 participants",
+      "Scaling beyond 2 requires a different topology contract (e.g., SFU)"
     ]
   }
 }

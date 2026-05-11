@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:math';
 
 import 'package:flutter/widgets.dart';
@@ -39,43 +38,6 @@ typedef VoiceCallTokenProvider = Future<VoiceCallCredentials> Function(
   VoiceCallTokenRequest request,
 );
 
-typedef VoiceCallSignalValidator = FutureOr<bool> Function(VoiceCallSignal signal);
-
-enum VoiceCallSignalType {
-  invite,
-  accept,
-  reject,
-  end,
-  recover,
-  iceRestart,
-}
-
-class VoiceCallSignal {
-  const VoiceCallSignal({
-    required this.type,
-    required this.callId,
-    required this.fromUserId,
-    required this.toUserId,
-    this.callType = CallType.voice,
-    this.reason,
-  });
-
-  final VoiceCallSignalType type;
-  final String callId;
-  final String fromUserId;
-  final String toUserId;
-  final CallType callType;
-  final String? reason;
-}
-
-abstract class VoiceCallSignalingTransport {
-  Stream<VoiceCallSignal> get signals;
-
-  Future<void> send(VoiceCallSignal signal);
-
-  Future<void> dispose();
-}
-
 enum VoiceCallUserEventType {
   outgoingStarted,
   incomingReceived,
@@ -103,8 +65,7 @@ enum VoiceCallConnectionEventType {
   initializing,
   ready,
   lifecycleChanged,
-  dialing,
-  ringing,
+  connecting,
   connected,
   interruptionStarted,
   interruptionRecovered,
@@ -116,7 +77,8 @@ enum VoiceCallConnectionEventType {
   iceRecovered,
   networkDegraded,
   networkRecovered,
-  ended,
+  disconnected,
+  failed,
   idle,
 }
 
@@ -183,52 +145,38 @@ class VoiceCallSdk with WidgetsBindingObserver {
   VoiceCallSdk({
     required String localUserId,
     required CallEngine callEngine,
-    required VoiceCallSignalingTransport signaling,
     required VoiceCallTokenProvider tokenProvider,
-    required VoiceCallSignalValidator signalValidator,
     VoiceCallCallbacks callbacks = const VoiceCallCallbacks(),
   })  : _callEngine = callEngine,
-        _signaling = signaling,
         _tokenProvider = tokenProvider,
         _callbacks = callbacks,
-        _signalValidator = signalValidator,
         _localUserId = localUserId,
-        _ownsEngine = false,
-        _ownsSignaling = false {
+        _ownsEngine = false {
     _initializeInternal();
   }
 
   VoiceCallSdk._owned({
     required String localUserId,
     required CallEngine callEngine,
-    required VoiceCallSignalingTransport signaling,
     required VoiceCallTokenProvider tokenProvider,
-    required VoiceCallSignalValidator signalValidator,
     required VoiceCallCallbacks callbacks,
-    required bool ownsSignaling,
   })  : _callEngine = callEngine,
-        _signaling = signaling,
         _tokenProvider = tokenProvider,
         _callbacks = callbacks,
-        _signalValidator = signalValidator,
         _localUserId = localUserId,
-        _ownsEngine = true,
-        _ownsSignaling = ownsSignaling {
+        _ownsEngine = true {
     _initializeInternal();
   }
 
   factory VoiceCallSdk.liveKit({
     required String localUserId,
     required VoiceCallTokenProvider tokenProvider,
-    required VoiceCallSignalValidator signalValidator,
-    VoiceCallSignalingTransport? signaling,
     VoiceCallCallbacks callbacks = const VoiceCallCallbacks(),
     StructuredLogger? logger,
     DateTime Function()? clock,
     CallReconnectPolicy reconnectPolicy = const CallReconnectPolicy(),
     CallNetworkThresholds networkThresholds = const CallNetworkThresholds(),
   }) {
-    final resolvedSignaling = signaling ?? InMemoryVoiceCallSignalingTransport();
     final callEngine = CallEngine(
       mediaEngine: createLiveKitMediaEngine(),
       logger: logger,
@@ -250,32 +198,22 @@ class VoiceCallSdk with WidgetsBindingObserver {
     return VoiceCallSdk._owned(
       localUserId: localUserId,
       callEngine: callEngine,
-      signaling: resolvedSignaling,
       tokenProvider: tokenProvider,
       callbacks: callbacks,
-      ownsSignaling: signaling == null,
-      signalValidator: signalValidator,
     );
   }
 
   final CallEngine _callEngine;
-  final VoiceCallSignalingTransport _signaling;
   final VoiceCallTokenProvider _tokenProvider;
   final VoiceCallCallbacks _callbacks;
-  final VoiceCallSignalValidator _signalValidator;
   final bool _ownsEngine;
-  final bool _ownsSignaling;
 
   StreamSubscription<CallState>? _stateSubscription;
-  StreamSubscription<VoiceCallSignal>? _signalSubscription;
   StreamSubscription<CallEngineEvent>? _engineEventSubscription;
 
   bool _isInitialized = false;
   bool _isDisposed = false;
   bool _isLifecycleObserverRegistered = false;
-  static const int _maxProcessedSignalKeys = 512;
-  final Set<String> _processedSignalKeys = <String>{};
-  final Queue<String> _processedSignalOrder = Queue<String>();
   final String _localUserId;
 
   CallState get state => _callEngine.state;
@@ -307,7 +245,6 @@ class VoiceCallSdk with WidgetsBindingObserver {
     );
 
     _stateSubscription = _callEngine.states.listen(_handleStateChanged);
-    _signalSubscription = _signaling.signals.listen(_handleSignal);
     _engineEventSubscription = _callEngine.events.listen(_handleEngineEvent);
 
     _isInitialized = true;
@@ -337,22 +274,13 @@ class VoiceCallSdk with WidgetsBindingObserver {
     try {
       final credentials = await _resolveCredentials(request);
 
-      await _callEngine.startOutgoing(
+      await _callEngine.connectSession(
         callId: resolvedCallId,
         peerId: peerId,
         roomUrl: credentials.roomUrl,
         token: credentials.token,
+        direction: CallDirection.outgoing,
         callType: callType,
-      );
-
-      await _signaling.send(
-        VoiceCallSignal(
-          type: VoiceCallSignalType.invite,
-          callId: resolvedCallId,
-          fromUserId: _localUserId,
-          toUserId: peerId,
-          callType: callType,
-        ),
       );
 
       _callbacks.onUser?.call(
@@ -362,91 +290,22 @@ class VoiceCallSdk with WidgetsBindingObserver {
           peerId: peerId,
         ),
       );
-    } catch (error, stackTrace) {
-      _emitError('startCall', error, stackTrace);
+    } catch (error) {
+      _emitError('startCall', _sanitizeError(error), null);
       rethrow;
     }
   }
 
   Future<void> acceptCall() async {
-    _ensureReady('acceptCall');
-
-    final session = _callEngine.state.session;
-    if (_callEngine.state.phase != CallPhase.ringing || session == null) {
-      throw CallLifecycleException('No incoming call to accept.');
-    }
-
-    final request = VoiceCallTokenRequest(
-      callId: session.callId,
-      peerId: session.peerId,
-      direction: CallDirection.incoming,
+    throw CallLifecycleException(
+      'acceptCall is removed from VoiceCallSdk. Signaling/invitation flow is handled externally.',
     );
-
-    try {
-      final credentials = await _resolveCredentials(request);
-
-      await _callEngine.acceptIncoming(
-        roomUrl: credentials.roomUrl,
-        token: credentials.token,
-      );
-
-      await _signaling.send(
-        VoiceCallSignal(
-          type: VoiceCallSignalType.accept,
-          callId: session.callId,
-          fromUserId: _localUserId,
-          toUserId: session.peerId,
-          callType: session.callType,
-        ),
-      );
-
-      _callbacks.onUser?.call(
-        VoiceCallUserEvent(
-          type: VoiceCallUserEventType.accepted,
-          callId: session.callId,
-          peerId: session.peerId,
-        ),
-      );
-    } catch (error, stackTrace) {
-      _emitError('acceptCall', error, stackTrace);
-      rethrow;
-    }
   }
 
   Future<void> rejectCall({String reason = 'rejected'}) async {
-    _ensureReady('rejectCall');
-
-    final session = _callEngine.state.session;
-    if (_callEngine.state.phase != CallPhase.ringing || session == null) {
-      throw CallLifecycleException('No incoming call to reject.');
-    }
-
-    try {
-      await _signaling.send(
-        VoiceCallSignal(
-          type: VoiceCallSignalType.reject,
-          callId: session.callId,
-          fromUserId: _localUserId,
-          toUserId: session.peerId,
-          callType: session.callType,
-          reason: reason,
-        ),
-      );
-
-      await _callEngine.rejectIncoming(reason: reason);
-
-      _callbacks.onUser?.call(
-        VoiceCallUserEvent(
-          type: VoiceCallUserEventType.rejected,
-          callId: session.callId,
-          peerId: session.peerId,
-          reason: reason,
-        ),
-      );
-    } catch (error, stackTrace) {
-      _emitError('rejectCall', error, stackTrace);
-      rethrow;
-    }
+    throw CallLifecycleException(
+      'rejectCall is removed from VoiceCallSdk. Signaling/invitation flow is handled externally.',
+    );
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) async {
@@ -458,20 +317,9 @@ class VoiceCallSdk with WidgetsBindingObserver {
     }
 
     try {
-      await _signaling.send(
-        VoiceCallSignal(
-          type: VoiceCallSignalType.end,
-          callId: session.callId,
-          fromUserId: _localUserId,
-          toUserId: session.peerId,
-          callType: session.callType,
-          reason: reason,
-        ),
-      );
-
       await _callEngine.endCall(reason: reason);
-    } catch (error, stackTrace) {
-      _emitError('endCall', error, stackTrace);
+    } catch (error) {
+      _emitError('endCall', _sanitizeError(error), null);
       rethrow;
     }
   }
@@ -510,12 +358,8 @@ class VoiceCallSdk with WidgetsBindingObserver {
       }
     }
     await _stateSubscription?.cancel();
-    await _signalSubscription?.cancel();
     await _engineEventSubscription?.cancel();
     _unregisterLifecycleObserver();
-    if (_ownsSignaling) {
-      await _signaling.dispose();
-    }
     if (_ownsEngine) {
       await _callEngine.dispose();
     }
@@ -573,210 +417,17 @@ class VoiceCallSdk with WidgetsBindingObserver {
         ),
       );
       return credentials;
-    } catch (error, stackTrace) {
+    } catch (error) {
+      final sanitized = _sanitizeError(error);
       _callbacks.onToken?.call(
         VoiceCallTokenEvent(
           type: VoiceCallTokenEventType.failed,
           request: request,
-          error: error,
+          error: sanitized,
         ),
       );
-      _emitError('resolveToken', error, stackTrace);
+      _emitError('resolveToken', sanitized, null);
       rethrow;
-    }
-  }
-
-  Future<void> _handleSignal(VoiceCallSignal signal) async {
-    if (!_isInitialized || _isDisposed) {
-      return;
-    }
-
-    if (signal.toUserId != _localUserId) {
-      return; // Not addressed to us — silent drop.
-    }
-
-    if (!_isValidSignalEnvelope(signal)) {
-      _emitError(
-        'signal.validation_failed',
-        CallLifecycleException('Rejected signal: invalid envelope fields.'),
-        null,
-      );
-      return;
-    }
-
-    final allowedByValidator = await _signalValidator(signal);
-    if (!allowedByValidator) {
-      _emitError(
-        'signal.validation_rejected',
-        CallLifecycleException(
-          'Rejected signal ${signal.type.name} from ${signal.fromUserId}: denied by signalValidator.',
-        ),
-        null,
-      );
-      return;
-    }
-
-    final signalKey = _signalKey(signal);
-    if (!_processedSignalKeys.add(signalKey)) {
-      return;
-    }
-    _processedSignalOrder.addLast(signalKey);
-    while (_processedSignalOrder.length > _maxProcessedSignalKeys) {
-      final expiredKey = _processedSignalOrder.removeFirst();
-      _processedSignalKeys.remove(expiredKey);
-    }
-
-    try {
-      switch (signal.type) {
-        case VoiceCallSignalType.invite:
-          await _onInvite(signal);
-        case VoiceCallSignalType.accept:
-          _onAccept(signal);
-        case VoiceCallSignalType.reject:
-          await _onReject(signal);
-        case VoiceCallSignalType.end:
-          await _onEnd(signal);
-        case VoiceCallSignalType.recover:
-          _onRecover(signal);
-        case VoiceCallSignalType.iceRestart:
-          _onIceRestart(signal);
-      }
-    } catch (error, stackTrace) {
-      _emitError('signal.${signal.type.name}', error, stackTrace);
-    }
-  }
-
-  void _onRecover(VoiceCallSignal signal) {
-    final session = _callEngine.state.session;
-    if (session == null) {
-      return;
-    }
-    if (session.callId != signal.callId || session.peerId != signal.fromUserId) {
-      return;
-    }
-
-    _callbacks.onConnection?.call(
-      VoiceCallConnectionEvent(
-        type: VoiceCallConnectionEventType.reconnecting,
-        state: _callEngine.state,
-      ),
-    );
-  }
-
-  void _onIceRestart(VoiceCallSignal signal) {
-    final session = _callEngine.state.session;
-    if (session == null) {
-      return;
-    }
-    if (session.callId != signal.callId || session.peerId != signal.fromUserId) {
-      return;
-    }
-
-    _callbacks.onConnection?.call(
-      VoiceCallConnectionEvent(
-        type: VoiceCallConnectionEventType.iceRecoveryStarted,
-        state: _callEngine.state,
-      ),
-    );
-  }
-
-  Future<void> _onInvite(VoiceCallSignal signal) async {
-    if (_callEngine.state.phase != CallPhase.idle) {
-      await _signaling.send(
-        VoiceCallSignal(
-          type: VoiceCallSignalType.reject,
-          callId: signal.callId,
-          fromUserId: _localUserId,
-          toUserId: signal.fromUserId,
-          callType: signal.callType,
-          reason: 'busy',
-        ),
-      );
-      return;
-    }
-
-    _callEngine.onIncoming(
-      callId: signal.callId,
-      peerId: signal.fromUserId,
-      callType: signal.callType,
-    );
-    _callbacks.onUser?.call(
-      VoiceCallUserEvent(
-        type: VoiceCallUserEventType.incomingReceived,
-        callId: signal.callId,
-        peerId: signal.fromUserId,
-      ),
-    );
-  }
-
-  void _onAccept(VoiceCallSignal signal) {
-    final state = _callEngine.state;
-    final session = state.session;
-    if (state.phase != CallPhase.dialing || session == null) {
-      return;
-    }
-
-    if (session.callId != signal.callId || session.peerId != signal.fromUserId) {
-      return;
-    }
-
-    _callEngine.markOutgoingConnected();
-    _callbacks.onUser?.call(
-      VoiceCallUserEvent(
-        type: VoiceCallUserEventType.accepted,
-        callId: signal.callId,
-        peerId: signal.fromUserId,
-      ),
-    );
-  }
-
-  Future<void> _onReject(VoiceCallSignal signal) async {
-    final state = _callEngine.state;
-    final session = state.session;
-    if (session == null) {
-      return;
-    }
-
-    if (session.callId != signal.callId || session.peerId != signal.fromUserId) {
-      return;
-    }
-
-    if (state.phase == CallPhase.dialing || state.phase == CallPhase.connected) {
-      await _callEngine.endCall(reason: signal.reason ?? 'rejected_by_remote');
-      _callbacks.onUser?.call(
-        VoiceCallUserEvent(
-          type: VoiceCallUserEventType.rejected,
-          callId: signal.callId,
-          peerId: signal.fromUserId,
-          reason: signal.reason,
-        ),
-      );
-    }
-  }
-
-  Future<void> _onEnd(VoiceCallSignal signal) async {
-    final state = _callEngine.state;
-    final session = state.session;
-    if (session == null) {
-      return;
-    }
-
-    if (session.callId != signal.callId || session.peerId != signal.fromUserId) {
-      return;
-    }
-
-    if (state.phase == CallPhase.dialing ||
-        state.phase == CallPhase.ringing ||
-        state.phase == CallPhase.connected) {
-      await _callEngine.endCall(reason: signal.reason ?? 'ended_by_remote');
-      _callbacks.onUser?.call(
-        VoiceCallUserEvent(
-          type: VoiceCallUserEventType.ended,
-          callId: signal.callId,
-          peerId: signal.fromUserId,
-          reason: signal.reason,
-        ),
-      );
     }
   }
 
@@ -785,24 +436,21 @@ class VoiceCallSdk with WidgetsBindingObserver {
       return;
     }
 
-    if (state.phase == CallPhase.idle) {
-      _processedSignalKeys.clear();
-      _processedSignalOrder.clear();
-    }
-
     final connectionType = switch (state.phase) {
       CallPhase.idle => VoiceCallConnectionEventType.idle,
-      CallPhase.dialing => VoiceCallConnectionEventType.dialing,
-      CallPhase.ringing => VoiceCallConnectionEventType.ringing,
+      CallPhase.connecting => VoiceCallConnectionEventType.connecting,
       CallPhase.connected => VoiceCallConnectionEventType.connected,
-      CallPhase.ended => VoiceCallConnectionEventType.ended,
+      CallPhase.reconnecting => VoiceCallConnectionEventType.reconnecting,
+      CallPhase.disconnected => VoiceCallConnectionEventType.disconnected,
+      CallPhase.failed => VoiceCallConnectionEventType.failed,
     };
 
     _callbacks.onConnection?.call(
       VoiceCallConnectionEvent(type: connectionType, state: state),
     );
 
-    if (state.phase == CallPhase.ended && state.reason == 'p2p_limit_exceeded') {
+    if ((state.phase == CallPhase.failed || state.phase == CallPhase.disconnected) &&
+        state.reason == 'p2p_limit_exceeded') {
       final session = state.session;
       if (session != null) {
         _callbacks.onUser?.call(
@@ -822,9 +470,15 @@ class VoiceCallSdk with WidgetsBindingObserver {
       VoiceCallErrorEvent(
         operation: operation,
         error: error,
-        stackTrace: stackTrace,
+        stackTrace: null,
       ),
     );
+  }
+
+  String _sanitizeError(Object error) {
+    final text = error.toString();
+    final jwtRegex = RegExp(r'[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+');
+    return text.replaceAll(jwtRegex, '[redacted_jwt]');
   }
 
   Future<void> _handleEngineEvent(CallEngineEvent event) async {
@@ -881,20 +535,6 @@ class VoiceCallSdk with WidgetsBindingObserver {
             state: _callEngine.state,
           ),
         );
-        if (session != null) {
-          unawaited(
-            _signaling.send(
-              VoiceCallSignal(
-                type: VoiceCallSignalType.recover,
-                callId: session.callId,
-                fromUserId: _localUserId,
-                toUserId: session.peerId,
-                callType: session.callType,
-                reason: event.reason,
-              ),
-            ),
-          );
-        }
         return;
       case CallEngineEventType.recovered:
         _callbacks.onConnection?.call(
@@ -918,20 +558,6 @@ class VoiceCallSdk with WidgetsBindingObserver {
             state: _callEngine.state,
           ),
         );
-        if (session != null) {
-          unawaited(
-            _signaling.send(
-              VoiceCallSignal(
-                type: VoiceCallSignalType.iceRestart,
-                callId: session.callId,
-                fromUserId: _localUserId,
-                toUserId: session.peerId,
-                callType: session.callType,
-                reason: event.reason,
-              ),
-            ),
-          );
-        }
         return;
       case CallEngineEventType.iceRecovered:
         _callbacks.onConnection?.call(
@@ -1005,7 +631,7 @@ class VoiceCallSdk with WidgetsBindingObserver {
               peerId: session.peerId,
               direction: session.direction,
             ),
-            error: event.error,
+            error: event.error == null ? null : _sanitizeError(event.error!),
             reconnectAttempt: event.reconnectAttempt,
           ),
         );
@@ -1035,42 +661,6 @@ class VoiceCallSdk with WidgetsBindingObserver {
     return 'call_$hex';
   }
 
-  bool _isValidSignalEnvelope(VoiceCallSignal signal) {
-    return signal.callId.trim().isNotEmpty &&
-        signal.fromUserId.trim().isNotEmpty &&
-        signal.toUserId.trim().isNotEmpty &&
-        signal.fromUserId != signal.toUserId;
-  }
-
-  String _signalKey(VoiceCallSignal signal) {
-    return '${signal.type.name}|${signal.callId}|${signal.fromUserId}|${signal.toUserId}|${signal.callType.name}';
-  }
-}
-
-class InMemoryVoiceCallSignalingTransport implements VoiceCallSignalingTransport {
-  InMemoryVoiceCallSignalingTransport();
-
-  final StreamController<VoiceCallSignal> _controller =
-      StreamController<VoiceCallSignal>.broadcast();
-
-  @override
-  Stream<VoiceCallSignal> get signals => _controller.stream;
-
-  @override
-  Future<void> send(VoiceCallSignal signal) async {
-    if (_controller.isClosed) {
-      return;
-    }
-    _controller.add(signal);
-  }
-
-  @override
-  Future<void> dispose() async {
-    if (_controller.isClosed) {
-      return;
-    }
-    await _controller.close();
-  }
 }
 
 extension on AppLifecycleState {

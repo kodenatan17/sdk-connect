@@ -169,30 +169,32 @@ class CallEngine {
   Stream<CallEngineEvent> get events => _eventsController.stream;
   CallState get state => _state;
 
-  Future<void> startOutgoing({
+  Future<void> connectSession({
     required String callId,
     required String peerId,
     required String roomUrl,
     required String token,
+    CallDirection direction = CallDirection.outgoing,
     CallType callType = CallType.voice,
   }) async {
-    await _runSerialized('start_outgoing', () async {
-      _guardStartAllowed('start_outgoing');
+    await _runSerialized('connect_session', () async {
+      _guardStartAllowed('connect_session');
       _validateConnectParams(roomUrl: roomUrl, token: token);
 
       final session = CallSession(
         callId: callId,
         peerId: peerId,
-        direction: CallDirection.outgoing,
+        direction: direction,
         callType: callType,
         createdAt: _clock(),
       );
 
       _transition(
-        to: CallPhase.dialing,
+        to: CallPhase.connecting,
         session: session,
-        event: 'call.start_outgoing',
+        event: 'call.connect_session',
         fields: const <String, Object?>{},
+        clearReason: true,
       );
 
       try {
@@ -202,16 +204,15 @@ class CallEngine {
         _log('media.connected', <String, Object?>{'callId': callId});
       } on P2PLimitExceededException catch (_) {
         _transition(
-          to: CallPhase.ended,
+          to: CallPhase.failed,
           reason: 'p2p_limit_exceeded',
           event: 'call.p2p_limit_exceeded',
           fields: <String, Object?>{'callId': callId},
         );
-        _resetToIdle('p2p_limit_cleanup');
         rethrow;
       } catch (error) {
         _transition(
-          to: CallPhase.ended,
+          to: CallPhase.failed,
           reason: 'connect_failed',
           event: 'call.connect_failed',
           fields: <String, Object?>{
@@ -219,147 +220,94 @@ class CallEngine {
             'error': _sanitizeError(error),
           },
         );
-        _resetToIdle('connect_failure_cleanup');
-        rethrow;
-      }
-    });
-  }
-
-  void onIncoming({
-    required String callId,
-    required String peerId,
-    CallType callType = CallType.voice,
-  }) {
-    _ensureActive('incoming');
-    _guardStartAllowed('incoming');
-
-    final session = CallSession(
-      callId: callId,
-      peerId: peerId,
-      direction: CallDirection.incoming,
-      callType: callType,
-      createdAt: _clock(),
-    );
-
-    _transition(
-      to: CallPhase.ringing,
-      session: session,
-      event: 'call.incoming',
-      fields: const <String, Object?>{},
-    );
-  }
-
-  Future<void> acceptIncoming({
-    required String roomUrl,
-    required String token,
-  }) async {
-    await _runSerialized('accept_incoming', () async {
-      _guardPhase(
-        expected: const <CallPhase>{CallPhase.ringing},
-        action: 'accept_incoming',
-      );
-      _validateConnectParams(roomUrl: roomUrl, token: token);
-
-      try {
-        _setActiveConnection(roomUrl: roomUrl, token: token);
-        _resetRecoveryCycle();
-        await _mediaEngine.connect(roomUrl: roomUrl, token: token);
-        _log('media.connected', <String, Object?>{'callId': _state.session?.callId});
-      } on P2PLimitExceededException catch (_) {
-        _transition(
-          to: CallPhase.ended,
-          reason: 'p2p_limit_exceeded',
-          event: 'call.p2p_limit_exceeded',
-          fields: const <String, Object?>{},
-        );
-        _resetToIdle('p2p_limit_cleanup');
-        rethrow;
-      } catch (error) {
-        _transition(
-          to: CallPhase.ended,
-          reason: 'connect_failed',
-          event: 'call.connect_failed',
-          fields: <String, Object?>{'error': _sanitizeError(error)},
-        );
-        _resetToIdle('connect_failure_cleanup');
         rethrow;
       }
 
       _transition(
         to: CallPhase.connected,
-        event: 'call.accepted',
+        event: 'call.connected',
         fields: const <String, Object?>{},
       );
     });
   }
 
-  Future<void> rejectIncoming({String reason = 'rejected'}) async {
-    await _runSerialized('reject_incoming', () async {
-      _guardPhase(
-        expected: const <CallPhase>{CallPhase.ringing},
-        action: 'reject_incoming',
-      );
-
-      _transition(
-        to: CallPhase.ended,
-        reason: reason,
-        event: 'call.rejected',
-        fields: <String, Object?>{'reason': reason},
-      );
-
-      try {
-        await _disconnectMedia();
-        _log(
-          'media.disconnected',
-          <String, Object?>{'callId': _state.session?.callId},
-        );
-      } catch (error) {
-        _log(
-          'media.disconnect_failed',
-          <String, Object?>{
-            'callId': _state.session?.callId,
-            'error': _sanitizeError(error),
-          },
-        );
-      } finally {
-        _resetToIdle('rejected_cleanup');
-      }
-    });
+  @Deprecated('Use connectSession instead. Signaling/invitation ownership is external.')
+  Future<void> startOutgoing({
+    required String callId,
+    required String peerId,
+    required String roomUrl,
+    required String token,
+    CallType callType = CallType.voice,
+  }) {
+    return connectSession(
+      callId: callId,
+      peerId: peerId,
+      roomUrl: roomUrl,
+      token: token,
+      direction: CallDirection.outgoing,
+      callType: callType,
+    );
   }
 
-  void markOutgoingConnected() {
-    _ensureActive('mark_outgoing_connected');
-    _guardPhase(
-      expected: const <CallPhase>{CallPhase.dialing},
-      action: 'mark_outgoing_connected',
+  @Deprecated('Incoming invitation lifecycle is owned by external signaling.')
+  void onIncoming({
+    required String callId,
+    required String peerId,
+    CallType callType = CallType.voice,
+  }) {
+    throw CallLifecycleException(
+      'onIncoming is removed from CallEngine. Handle signaling externally and call connectSession when ready to join media.',
     );
+  }
 
-    _transition(
-      to: CallPhase.connected,
-      event: 'call.connected',
-      fields: const <String, Object?>{},
+  @Deprecated('Incoming invitation lifecycle is owned by external signaling.')
+  Future<void> acceptIncoming({
+    required String roomUrl,
+    required String token,
+  }) {
+    throw CallLifecycleException(
+      'acceptIncoming is removed from CallEngine. Use connectSession instead.',
+    );
+  }
+
+  @Deprecated('Incoming invitation lifecycle is owned by external signaling.')
+  Future<void> rejectIncoming({String reason = 'rejected'}) {
+    throw CallLifecycleException(
+      'rejectIncoming is removed from CallEngine. Handle invitation rejection in signaling layer.',
+    );
+  }
+
+  @Deprecated('Media connect transitions to connected automatically.')
+  void markOutgoingConnected() {
+    throw CallLifecycleException(
+      'markOutgoingConnected is removed. CallEngine transitions to connected after media connect.',
     );
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) async {
     await _runSerialized('end_call', () async {
-      if (_state.phase == CallPhase.idle || _state.phase == CallPhase.ended) {
+      if (_state.phase == CallPhase.idle) {
+        return;
+      }
+
+      if (_state.phase == CallPhase.disconnected || _state.phase == CallPhase.failed) {
+        _resetToIdle('end_cleanup');
         return;
       }
 
       _guardPhase(
         expected: const <CallPhase>{
-          CallPhase.dialing,
-          CallPhase.ringing,
+          CallPhase.connecting,
           CallPhase.connected,
+          CallPhase.reconnecting,
         },
         action: 'end_call',
       );
 
       _transition(
-        to: CallPhase.ended,
+        to: CallPhase.disconnected,
         reason: reason,
-        event: 'call.ended',
+        event: 'call.disconnected',
         fields: <String, Object?>{'reason': reason},
       );
 
@@ -386,7 +334,7 @@ class CallEngine {
   Future<void> setMuted(bool muted) async {
     await _runSerialized('set_muted', () async {
       _guardPhase(
-        expected: const <CallPhase>{CallPhase.connected},
+        expected: const <CallPhase>{CallPhase.connected, CallPhase.reconnecting},
         action: 'set_muted',
       );
       if (_state.isMuted == muted) {
@@ -412,7 +360,7 @@ class CallEngine {
   Future<void> setSpeakerOn(bool speakerOn) async {
     await _runSerialized('set_speaker_on', () async {
       _guardPhase(
-        expected: const <CallPhase>{CallPhase.connected},
+        expected: const <CallPhase>{CallPhase.connected, CallPhase.reconnecting},
         action: 'set_speaker_on',
       );
       if (_state.isSpeakerOn == speakerOn) {
@@ -448,7 +396,7 @@ class CallEngine {
   Future<void> setVideoEnabled(bool enabled) async {
     await _runSerialized('set_video_enabled', () async {
       _guardPhase(
-        expected: const <CallPhase>{CallPhase.dialing, CallPhase.connected},
+        expected: const <CallPhase>{CallPhase.connecting, CallPhase.connected, CallPhase.reconnecting},
         action: 'set_video_enabled',
       );
       if (_state.isVideoEnabled == enabled) {
@@ -493,7 +441,9 @@ class CallEngine {
       );
 
       if (_state.session == null ||
-          (_state.phase != CallPhase.connected && _state.phase != CallPhase.dialing)) {
+          (_state.phase != CallPhase.connected &&
+              _state.phase != CallPhase.connecting &&
+              _state.phase != CallPhase.reconnecting)) {
         return;
       }
 
@@ -593,7 +543,14 @@ class CallEngine {
   }
 
   void _guardStartAllowed(String action) {
-    _guardPhase(expected: const <CallPhase>{CallPhase.idle}, action: action);
+    _guardPhase(
+      expected: const <CallPhase>{
+        CallPhase.idle,
+        CallPhase.disconnected,
+        CallPhase.failed,
+      },
+      action: action,
+    );
   }
 
   void _guardPhase({
@@ -775,7 +732,7 @@ class CallEngine {
   }
 
   void _handleMediaDisconnected(String reason) {
-    if (_state.phase == CallPhase.idle || _state.phase == CallPhase.ended) {
+    if (_state.phase == CallPhase.idle) {
       return;
     }
 
@@ -804,7 +761,7 @@ class CallEngine {
       return false;
     }
 
-    if (_state.phase != CallPhase.connected && _state.phase != CallPhase.dialing) {
+    if (_state.phase != CallPhase.connected) {
       return false;
     }
 
@@ -820,12 +777,14 @@ class CallEngine {
     _reconnectAttempt = 0;
     _lastRecoveryCycleAt = _clock();
 
-    _state = _state.copyWith(
-      isReconnecting: true,
-      reconnectAttempts: _reconnectAttempt,
+    _transition(
+      to: CallPhase.reconnecting,
       reason: reason,
-      updatedAt: _clock(),
+      event: 'call.reconnecting',
+      fields: <String, Object?>{'reason': reason},
     );
+
+    _state = _state.copyWith(reconnectAttempts: _reconnectAttempt, updatedAt: _clock());
     _controller.add(_state);
 
     _emitEngineEvent(
@@ -859,11 +818,13 @@ class CallEngine {
         ),
       );
 
-      _handleUnexpectedTermination(
+      _transition(
+        to: CallPhase.failed,
         reason: 'recovery_grace_timeout',
         event: 'call.recovery_grace_timeout',
-        cleanupEvent: 'recovery_timeout_cleanup',
+        fields: const <String, Object?>{},
       );
+      _cancelRecoveryTimers();
     });
   }
 
@@ -893,11 +854,13 @@ class CallEngine {
             timestamp: _clock(),
           ),
         );
-        _handleUnexpectedTermination(
+        _transition(
+          to: CallPhase.failed,
           reason: 'max_reconnect_attempts',
-          event: 'call.reconnect_exhausted',
-          cleanupEvent: 'reconnect_exhausted_cleanup',
+          event: 'call.reconnect_failed',
+          fields: const <String, Object?>{},
         );
+        _cancelRecoveryTimers();
         return;
       }
 
@@ -1021,7 +984,7 @@ class CallEngine {
             type: CallEngineEventType.tokenRefreshFailed,
             callId: session.callId,
             reconnectAttempt: _reconnectAttempt,
-            error: error,
+            error: _sanitizeError(error),
             timestamp: _clock(),
           ),
         );
@@ -1074,13 +1037,13 @@ class CallEngine {
     _graceTimer?.cancel();
     _reconnectTimer?.cancel();
 
-    _state = _state.copyWith(
-      isReconnecting: false,
+    _transition(
+      to: CallPhase.connected,
       reason: null,
       clearReason: true,
-      updatedAt: _clock(),
+      event: 'call.recovered_connected',
+      fields: const <String, Object?>{},
     );
-    _controller.add(_state);
 
     _emitEngineEvent(
       CallEngineEvent(
@@ -1108,7 +1071,7 @@ class CallEngine {
     );
     _controller.add(_state);
 
-    if (_state.phase != CallPhase.connected) {
+    if (_state.phase != CallPhase.connected && _state.phase != CallPhase.reconnecting) {
       return;
     }
 
@@ -1261,17 +1224,17 @@ class CallEngine {
     required String event,
     required String cleanupEvent,
   }) {
-    if (_state.phase == CallPhase.idle || _state.phase == CallPhase.ended) {
+    if (_state.phase == CallPhase.idle) {
       return;
     }
 
     _transition(
-      to: CallPhase.ended,
+      to: CallPhase.disconnected,
       reason: reason,
       event: event,
       fields: <String, Object?>{'reason': reason},
     );
-    _resetToIdle(cleanupEvent);
+    _log(cleanupEvent, const <String, Object?>{});
   }
 
   void _transition({
@@ -1300,14 +1263,22 @@ class CallEngine {
       phase: to,
       session: session,
       reason: reason,
-      isMuted: to == CallPhase.connected ? _state.isMuted : false,
-      isSpeakerOn: to == CallPhase.connected ? _state.isSpeakerOn : false,
-      isVideoEnabled: to == CallPhase.connected || to == CallPhase.dialing ? _state.isVideoEnabled : false,
-      isReconnecting: to == CallPhase.connected || to == CallPhase.dialing ? _state.isReconnecting : false,
-      reconnectAttempts: to == CallPhase.connected || to == CallPhase.dialing ? _state.reconnectAttempts : 0,
-      networkScore: to == CallPhase.connected || to == CallPhase.dialing ? _state.networkScore : null,
-      clearNetworkScore: !(to == CallPhase.connected || to == CallPhase.dialing),
-      isAudioPriority: to == CallPhase.connected ? _state.isAudioPriority : false,
+      isMuted: (to == CallPhase.connected || to == CallPhase.reconnecting) ? _state.isMuted : false,
+      isSpeakerOn:
+        (to == CallPhase.connected || to == CallPhase.reconnecting) ? _state.isSpeakerOn : false,
+      isVideoEnabled: (to == CallPhase.connected ||
+          to == CallPhase.connecting ||
+          to == CallPhase.reconnecting)
+        ? _state.isVideoEnabled
+        : false,
+      isReconnecting: to == CallPhase.reconnecting ? true : false,
+      reconnectAttempts: to == CallPhase.reconnecting ? _state.reconnectAttempts : 0,
+      networkScore:
+        (to == CallPhase.connected || to == CallPhase.reconnecting) ? _state.networkScore : null,
+      clearNetworkScore: !(to == CallPhase.connected || to == CallPhase.reconnecting),
+      isAudioPriority: to == CallPhase.connected || to == CallPhase.reconnecting
+        ? _state.isAudioPriority
+        : false,
       clearReason: clearReason,
       updatedAt: _clock(),
     );
@@ -1335,11 +1306,24 @@ class CallEngine {
     }
 
     final allowed = <CallPhase, Set<CallPhase>>{
-      CallPhase.idle: const <CallPhase>{CallPhase.dialing, CallPhase.ringing},
-      CallPhase.dialing: const <CallPhase>{CallPhase.connected, CallPhase.ended},
-      CallPhase.ringing: const <CallPhase>{CallPhase.connected, CallPhase.ended},
-      CallPhase.connected: const <CallPhase>{CallPhase.ended},
-      CallPhase.ended: const <CallPhase>{CallPhase.idle},
+      CallPhase.idle: const <CallPhase>{CallPhase.connecting},
+      CallPhase.connecting: const <CallPhase>{
+        CallPhase.connected,
+        CallPhase.disconnected,
+        CallPhase.failed,
+      },
+      CallPhase.connected: const <CallPhase>{
+        CallPhase.reconnecting,
+        CallPhase.disconnected,
+        CallPhase.failed,
+      },
+      CallPhase.reconnecting: const <CallPhase>{
+        CallPhase.connected,
+        CallPhase.disconnected,
+        CallPhase.failed,
+      },
+      CallPhase.disconnected: const <CallPhase>{CallPhase.idle, CallPhase.connecting},
+      CallPhase.failed: const <CallPhase>{CallPhase.idle, CallPhase.connecting},
     };
 
     return allowed[from]?.contains(to) ?? false;

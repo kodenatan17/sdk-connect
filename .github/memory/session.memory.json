@@ -1,7 +1,15 @@
 {
-  "feature": "restructure example usage for voice and video call with folders main, config/config_sdk, call_screen/incoming_call_screen, voice/voice_call_screen, video/video_call_screen",
-  "agents": ["solo-orchestrator", "joko-builder"],
-  "skills": ["flutter-architecture-skill"],
+  "feature": "SDKConnect media/session-only architecture refactor (remove signaling ownership from SDK/engine)",
+  "agents": [
+    "mbg-memory-system",
+    "joko-builder",
+    "senior-reviewer",
+    "pakpol-security",
+    "kang-commit"
+  ],
+  "skills": [
+    "flutter-architecture-skill"
+  ],
   "outcome": "success",
-  "round": 10
+  "round": 11
 }

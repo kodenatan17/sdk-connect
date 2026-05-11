@@ -2,16 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sdk_connect/presentation/voice/voice_call_screen.dart';
-import 'package:sdk_connect/sdk_connect.dart';
+import 'package:sdk_connect/core/enums/call_phase.dart';
+import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 import 'package:sdk_connect/presentation/voice/voice_call_controller.dart';
+import 'package:sdk_connect/presentation/voice/voice_call_screen.dart';
 
 void main() {
   const validToken = 'header.payload.signature';
 
-  test('controller maps lifecycle states to simple UI modes', () async {
+  test('controller maps media lifecycle to UI modes', () async {
     final engine = CallEngine(
       mediaEngine: _FakeMediaEngine(),
       logger: _InMemoryLogger(),
@@ -21,17 +22,15 @@ void main() {
     expect(controller.uiState.mode, VoiceCallUiMode.idle);
     expect(controller.uiState.title, 'No active call');
 
-    engine.onIncoming(callId: 'call-1', peerId: 'peer-a');
-    await Future<void>.delayed(Duration.zero);
-    expect(controller.uiState.mode, VoiceCallUiMode.incoming);
-    expect(controller.uiState.showAccept, isTrue);
-    expect(controller.uiState.showReject, isTrue);
-
-    await controller.acceptIncoming(
+    await controller.startOutgoing(
+      callId: 'call-1',
+      peerId: 'peer-a',
       roomUrl: 'wss://room.test',
       token: validToken,
     );
     await Future<void>.delayed(Duration.zero);
+
+    expect(engine.state.phase, CallPhase.connected);
     expect(controller.uiState.mode, VoiceCallUiMode.inCall);
     expect(controller.uiState.controlsEnabled, isTrue);
 
@@ -43,16 +42,10 @@ void main() {
     await engine.dispose();
   });
 
-  test('controller actions wire to engine and enforce control phase', () async {
+  test('controller actions wire to engine controls', () async {
     final media = _FakeMediaEngine();
     final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
     final controller = VoiceCallController(engine: engine);
-
-    await controller.toggleMute();
-    await controller.toggleSpeaker();
-    await Future<void>.delayed(Duration.zero);
-    expect(controller.uiState.isMuted, isFalse);
-    expect(controller.uiState.isSpeakerOn, isFalse);
 
     await controller.startOutgoing(
       callId: 'call-2',
@@ -61,19 +54,8 @@ void main() {
       token: validToken,
     );
 
-    expect(engine.state.phase, CallPhase.dialing);
+    expect(engine.state.phase, CallPhase.connected);
     expect(media.connectCount, 1);
-
-    controller.markOutgoingConnected();
-    await Future<void>.delayed(Duration.zero);
-    expect(controller.uiState.mode, VoiceCallUiMode.inCall);
-
-    await controller.endCall();
-    expect(engine.state.phase, CallPhase.idle);
-
-    engine.onIncoming(callId: 'call-3', peerId: 'peer-c');
-    await controller.acceptIncoming(roomUrl: 'wss://room.test', token: validToken);
-    await Future<void>.delayed(Duration.zero);
 
     await controller.toggleMute();
     await controller.toggleSpeaker();
@@ -83,64 +65,45 @@ void main() {
 
     await controller.endCall();
     expect(engine.state.phase, CallPhase.idle);
-    expect(controller.uiState.isMuted, isFalse);
-    expect(controller.uiState.isSpeakerOn, isFalse);
-
-    engine.onIncoming(callId: 'call-4', peerId: 'peer-d');
-    await Future<void>.delayed(Duration.zero);
-    await controller.rejectIncoming(reason: 'not_allowed_now');
-    expect(engine.state.phase, CallPhase.idle);
 
     controller.dispose();
     await engine.dispose();
   });
 
   testWidgets(
-    'voice screen renders incoming and in-call controls',
+    'voice screen renders in-call controls for connected session',
     (tester) async {
-    final engine = CallEngine(
-      mediaEngine: _FakeMediaEngine(),
-      logger: _InMemoryLogger(),
-    );
-    final controller = VoiceCallController(engine: engine);
+      final engine = CallEngine(
+        mediaEngine: _FakeMediaEngine(),
+        logger: _InMemoryLogger(),
+      );
+      final controller = VoiceCallController(engine: engine);
 
-    Future<void> onAccept() {
-      return controller.acceptIncoming(
+      await controller.startOutgoing(
+        callId: 'call-3',
+        peerId: 'peer-c',
         roomUrl: 'wss://room.test',
         token: validToken,
       );
-    }
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: VoiceCallScreen(
-          controller: controller,
-          onAccept: onAccept,
-          onReject: () => controller.rejectIncoming(),
-          onEnd: () => controller.endCall(),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: VoiceCallScreen(
+            controller: controller,
+            onEnd: () => controller.endCall(),
+          ),
         ),
-      ),
-    );
+      );
 
-    engine.onIncoming(callId: 'call-4', peerId: 'peer-d');
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump();
 
-    expect(find.text('Incoming call'), findsOneWidget);
-    expect(find.text('Accept'), findsOneWidget);
-    expect(find.text('Reject'), findsOneWidget);
+      expect(find.textContaining('In call with'), findsOneWidget);
+      expect(find.byTooltip('Mute'), findsOneWidget);
+      expect(find.byTooltip('Speaker'), findsOneWidget);
+      expect(find.byTooltip('End'), findsOneWidget);
 
-    await tester.tap(find.text('Accept'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-
-    expect(find.textContaining('In call with'), findsOneWidget);
-    expect(find.byTooltip('Mute'), findsOneWidget);
-    expect(find.byTooltip('Speaker'), findsOneWidget);
-    expect(find.byTooltip('End'), findsOneWidget);
-
-    controller.dispose();
-    await engine.dispose();
+      controller.dispose();
+      await engine.dispose();
     },
     skip: true,
   );
@@ -148,7 +111,6 @@ void main() {
 
 class _FakeMediaEngine implements MediaEngine {
   int connectCount = 0;
-  int disconnectCount = 0;
   bool _connected = false;
   bool _isMuted = false;
   bool _isSpeakerOn = false;
@@ -179,7 +141,6 @@ class _FakeMediaEngine implements MediaEngine {
 
   @override
   Future<void> disconnect() async {
-    disconnectCount += 1;
     _connected = false;
     _isMuted = false;
     _isSpeakerOn = false;

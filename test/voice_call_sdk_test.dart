@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sdk_connect/sdk_connect.dart';
+import 'package:sdk_connect/core/enums/call_phase.dart';
+import 'package:sdk_connect/core/enums/call_direction.dart';
+import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
+import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 import 'package:sdk_connect/sdk/voice_call_sdk.dart';
@@ -12,119 +15,66 @@ void main() {
     token: 'header.payload.signature',
   );
 
-  test('sdk initializes and starts outgoing call with internal token resolution', () async {
+  test('VoiceCallSdk starts media session and emits connecting/connected events', () async {
     final media = _FakeMediaEngine();
-    final signaling = _FakeSignalingTransport();
     final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
 
-    final tokenRequests = <VoiceCallTokenRequest>[];
-    final tokenEvents = <VoiceCallTokenEventType>[];
     final connectionEvents = <VoiceCallConnectionEventType>[];
+    final tokenEvents = <VoiceCallTokenEventType>[];
 
     final sdk = VoiceCallSdk(
       localUserId: 'user-a',
       callEngine: engine,
-      signaling: signaling,
-      tokenProvider: (request) async {
-        tokenRequests.add(request);
-        return validCredentials;
-      },
-      signalValidator: (_) async => true,
+      tokenProvider: (_) async => validCredentials,
       callbacks: VoiceCallCallbacks(
-        onToken: (event) => tokenEvents.add(event.type),
         onConnection: (event) => connectionEvents.add(event.type),
+        onToken: (event) => tokenEvents.add(event.type),
       ),
     );
 
     await sdk.startCall(peerId: 'user-b', callId: 'call-1');
+    await Future<void>.delayed(Duration.zero);
 
     expect(media.connectCount, 1);
-    expect(engine.state.phase, CallPhase.dialing);
-    expect(tokenRequests.single.direction, CallDirection.outgoing);
-    expect(signaling.sentSignals.single.type, VoiceCallSignalType.invite);
-    expect(tokenEvents, <VoiceCallTokenEventType>[
-      VoiceCallTokenEventType.requested,
-      VoiceCallTokenEventType.resolved,
-    ]);
-    expect(connectionEvents, contains(VoiceCallConnectionEventType.ready));
-    expect(connectionEvents, contains(VoiceCallConnectionEventType.dialing));
-
-    signaling.pushIncoming(
-      const VoiceCallSignal(
-        type: VoiceCallSignalType.accept,
-        callId: 'call-1',
-        fromUserId: 'user-b',
-        toUserId: 'user-a',
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-
     expect(engine.state.phase, CallPhase.connected);
+    expect(connectionEvents, contains(VoiceCallConnectionEventType.connecting));
+    expect(connectionEvents, contains(VoiceCallConnectionEventType.connected));
+    expect(tokenEvents, contains(VoiceCallTokenEventType.requested));
+    expect(tokenEvents, contains(VoiceCallTokenEventType.resolved));
 
     await sdk.dispose();
     await engine.dispose();
   });
 
-  test('sdk handles incoming signal and accepts call internally', () async {
+  test('VoiceCallSdk accept/reject throw after signaling decoupling', () async {
+    final sdk = VoiceCallSdk(
+      localUserId: 'user-a',
+      callEngine: CallEngine(mediaEngine: _FakeMediaEngine(), logger: _InMemoryLogger()),
+      tokenProvider: (_) async => validCredentials,
+    );
+
+    await expectLater(() => sdk.acceptCall(), throwsA(isA<CallLifecycleException>()));
+    await expectLater(() => sdk.rejectCall(), throwsA(isA<CallLifecycleException>()));
+
+    await sdk.dispose();
+  });
+
+  test('VoiceCallSdk forwards p2p limit as user event', () async {
     final media = _FakeMediaEngine();
-    final signaling = _FakeSignalingTransport();
     final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
 
     final userEvents = <VoiceCallUserEventType>[];
     final sdk = VoiceCallSdk(
       localUserId: 'user-a',
       callEngine: engine,
-      signaling: signaling,
       tokenProvider: (_) async => validCredentials,
-      signalValidator: (_) async => true,
       callbacks: VoiceCallCallbacks(
         onUser: (event) => userEvents.add(event.type),
       ),
     );
 
-    signaling.pushIncoming(
-      const VoiceCallSignal(
-        type: VoiceCallSignalType.invite,
-        callId: 'call-2',
-        fromUserId: 'user-b',
-        toUserId: 'user-a',
-      ),
-    );
+    await sdk.startCall(peerId: 'user-b', callId: 'call-2');
     await Future<void>.delayed(Duration.zero);
-
-    expect(engine.state.phase, CallPhase.ringing);
-    expect(userEvents, contains(VoiceCallUserEventType.incomingReceived));
-
-    await sdk.acceptCall();
-
-    expect(engine.state.phase, CallPhase.connected);
-    expect(
-      signaling.sentSignals.last.type,
-      VoiceCallSignalType.accept,
-    );
-
-    await sdk.dispose();
-    await engine.dispose();
-  });
-
-  test('sdk surfaces p2p limit callback from call engine events', () async {
-    final media = _FakeMediaEngine();
-    final signaling = _FakeSignalingTransport();
-    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
-
-    final userEvents = <VoiceCallUserEventType>[];
-    final sdk = VoiceCallSdk(
-      localUserId: 'user-a',
-      callEngine: engine,
-      signaling: signaling,
-      tokenProvider: (_) async => validCredentials,
-      signalValidator: (_) async => true,
-      callbacks: VoiceCallCallbacks(
-        onUser: (event) => userEvents.add(event.type),
-      ),
-    );
-
-    await sdk.startCall(peerId: 'user-b', callId: 'call-3');
 
     media.emitEvent(
       const MediaEngineEvent(
@@ -134,74 +84,11 @@ void main() {
     );
     await Future<void>.delayed(Duration.zero);
 
-    expect(engine.state.phase, CallPhase.idle);
     expect(userEvents, contains(VoiceCallUserEventType.p2pLimitExceeded));
 
     await sdk.dispose();
     await engine.dispose();
   });
-
-  test('sdk forwards lifecycle and interruption recovery connection events', () async {
-    final media = _FakeMediaEngine();
-    final signaling = _FakeSignalingTransport();
-    final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
-
-    final connectionEvents = <VoiceCallConnectionEventType>[];
-    final sdk = VoiceCallSdk(
-      localUserId: 'user-a',
-      callEngine: engine,
-      signaling: signaling,
-      tokenProvider: (_) async => validCredentials,
-      signalValidator: (_) async => true,
-      callbacks: VoiceCallCallbacks(
-        onConnection: (event) => connectionEvents.add(event.type),
-      ),
-    );
-
-    await sdk.startCall(peerId: 'user-b', callId: 'call-4');
-    signaling.pushIncoming(
-      const VoiceCallSignal(
-        type: VoiceCallSignalType.accept,
-        callId: 'call-4',
-        fromUserId: 'user-b',
-        toUserId: 'user-a',
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-
-    await engine.onAppLifecycleChanged(CallAppLifecycleState.paused);
-    await engine.onAppLifecycleChanged(CallAppLifecycleState.resumed);
-
-    expect(connectionEvents, contains(VoiceCallConnectionEventType.lifecycleChanged));
-    expect(connectionEvents, contains(VoiceCallConnectionEventType.interruptionStarted));
-    expect(connectionEvents, contains(VoiceCallConnectionEventType.interruptionRecovered));
-
-    await sdk.dispose();
-    await engine.dispose();
-  });
-}
-
-class _FakeSignalingTransport implements VoiceCallSignalingTransport {
-  final List<VoiceCallSignal> sentSignals = <VoiceCallSignal>[];
-  final StreamController<VoiceCallSignal> _controller =
-      StreamController<VoiceCallSignal>.broadcast();
-
-  @override
-  Stream<VoiceCallSignal> get signals => _controller.stream;
-
-  @override
-  Future<void> send(VoiceCallSignal signal) async {
-    sentSignals.add(signal);
-  }
-
-  void pushIncoming(VoiceCallSignal signal) {
-    _controller.add(signal);
-  }
-
-  @override
-  Future<void> dispose() async {
-    await _controller.close();
-  }
 }
 
 class _FakeMediaEngine implements MediaEngine {

@@ -68,96 +68,6 @@ typedef SDKConnectTokenProvider = Future<SDKConnectCredentials> Function(
   SDKConnectTokenRequest request,
 );
 
-typedef SDKConnectSignalValidator = FutureOr<bool> Function(
-  SDKConnectSignal signal,
-);
-
-enum SDKConnectSignalType {
-  invite,
-  accept,
-  reject,
-  end,
-  recover,
-  iceRestart,
-}
-
-class SDKConnectSignal {
-  const SDKConnectSignal({
-    required this.type,
-    required this.callId,
-    required this.fromUserId,
-    required this.toUserId,
-    this.callType = SDKConnectCallType.voice,
-    this.reason,
-  });
-
-  final SDKConnectSignalType type;
-  final String callId;
-  final String fromUserId;
-  final String toUserId;
-  final SDKConnectCallType callType;
-  final String? reason;
-
-  factory SDKConnectSignal._fromVoice(
-    VoiceCallSignal signal,
-  ) {
-    return SDKConnectSignal(
-      type: SDKConnectSignalType.values.byName(signal.type.name),
-      callId: signal.callId,
-      fromUserId: signal.fromUserId,
-      toUserId: signal.toUserId,
-      callType: signal.callType.toPublic(),
-      reason: signal.reason,
-    );
-  }
-
-  VoiceCallSignal _toVoiceSignal() {
-    return VoiceCallSignal(
-      type: VoiceCallSignalType.values.byName(type.name),
-      callId: callId,
-      fromUserId: fromUserId,
-      toUserId: toUserId,
-      callType: callType.toCore(),
-      reason: reason,
-    );
-  }
-}
-
-abstract class SDKConnectSignalingTransport {
-  Stream<SDKConnectSignal> get signals;
-
-  Future<void> send(SDKConnectSignal signal);
-
-  Future<void> dispose();
-}
-
-class InMemorySDKConnectSignalingTransport
-    implements SDKConnectSignalingTransport {
-  InMemorySDKConnectSignalingTransport();
-
-  final StreamController<SDKConnectSignal> _controller =
-      StreamController<SDKConnectSignal>.broadcast();
-
-  @override
-  Stream<SDKConnectSignal> get signals => _controller.stream;
-
-  @override
-  Future<void> send(SDKConnectSignal signal) async {
-    if (_controller.isClosed) {
-      return;
-    }
-    _controller.add(signal);
-  }
-
-  @override
-  Future<void> dispose() async {
-    if (_controller.isClosed) {
-      return;
-    }
-    await _controller.close();
-  }
-}
-
 enum SDKConnectEventKind {
   user,
   connection,
@@ -213,8 +123,7 @@ enum SDKConnectConnectionEventType {
   initializing,
   ready,
   lifecycleChanged,
-  dialing,
-  ringing,
+  connecting,
   connected,
   interruptionStarted,
   interruptionRecovered,
@@ -226,7 +135,8 @@ enum SDKConnectConnectionEventType {
   iceRecovered,
   networkDegraded,
   networkRecovered,
-  ended,
+  disconnected,
+  failed,
   idle,
 }
 
@@ -325,22 +235,14 @@ class SDKConnect {
   SDKConnect({
     required String localUserId,
     required CallEngine callEngine,
-    required SDKConnectSignalingTransport signaling,
     required SDKConnectTokenProvider tokenProvider,
-    required SDKConnectSignalValidator signalValidator,
     SDKConnectCallbacks callbacks = const SDKConnectCallbacks(),
   })  : _callEngine = callEngine,
-        _signaling = signaling,
         _callbacks = callbacks,
-        _ownsEngine = false,
-        _ownsSignaling = false {
+      _ownsEngine = false {
     _voiceSdk = VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
-      signaling: _SDKConnectSignalingTransportAdapter(
-        signaling,
-        currentCallType: _resolveOutboundCallType,
-      ),
       tokenProvider: (request) async {
         final credentials = await tokenProvider(
           SDKConnectTokenRequest._fromVoice(
@@ -349,9 +251,6 @@ class SDKConnect {
           ),
         );
         return credentials._toVoiceCredentials();
-      },
-      signalValidator: (signal) {
-        return signalValidator(SDKConnectSignal._fromVoice(signal));
       },
       callbacks: VoiceCallCallbacks(
         onUser: _handleVoiceUserEvent,
@@ -373,14 +272,11 @@ class SDKConnect {
   factory SDKConnect.create({
     required String localUserId,
     required SDKConnectTokenProvider tokenProvider,
-    required SDKConnectSignalValidator signalValidator,
-    SDKConnectSignalingTransport? signaling,
     SDKConnectCallbacks callbacks = const SDKConnectCallbacks(),
     SDKConnectReliabilityConfig reliability = const SDKConnectReliabilityConfig(),
     StructuredLogger? logger,
     DateTime Function()? clock,
   }) {
-    final resolvedSignaling = signaling ?? InMemorySDKConnectSignalingTransport();
     final callEngine = CallEngine(
       mediaEngine: createLiveKitMediaEngine(),
       logger: logger,
@@ -403,34 +299,22 @@ class SDKConnect {
     return SDKConnect._owned(
       localUserId: localUserId,
       callEngine: callEngine,
-      signaling: resolvedSignaling,
       tokenProvider: tokenProvider,
-      signalValidator: signalValidator,
       callbacks: callbacks,
-      ownsSignaling: signaling == null,
     );
   }
 
   SDKConnect._owned({
     required String localUserId,
     required CallEngine callEngine,
-    required SDKConnectSignalingTransport signaling,
     required SDKConnectTokenProvider tokenProvider,
-    required SDKConnectSignalValidator signalValidator,
     required SDKConnectCallbacks callbacks,
-    required bool ownsSignaling,
   })  : _callEngine = callEngine,
-        _signaling = signaling,
         _callbacks = callbacks,
-        _ownsEngine = true,
-        _ownsSignaling = ownsSignaling {
+      _ownsEngine = true {
     _voiceSdk = VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
-      signaling: _SDKConnectSignalingTransportAdapter(
-        signaling,
-        currentCallType: _resolveOutboundCallType,
-      ),
       tokenProvider: (request) async {
         final credentials = await tokenProvider(
           SDKConnectTokenRequest._fromVoice(
@@ -439,9 +323,6 @@ class SDKConnect {
           ),
         );
         return credentials._toVoiceCredentials();
-      },
-      signalValidator: (signal) {
-        return signalValidator(SDKConnectSignal._fromVoice(signal));
       },
       callbacks: VoiceCallCallbacks(
         onUser: _handleVoiceUserEvent,
@@ -461,10 +342,8 @@ class SDKConnect {
   }
 
   final CallEngine _callEngine;
-  final SDKConnectSignalingTransport _signaling;
   final SDKConnectCallbacks _callbacks;
   final bool _ownsEngine;
-  final bool _ownsSignaling;
   final StreamController<SDKConnectEvent> _eventsController =
       StreamController<SDKConnectEvent>.broadcast();
 
@@ -495,11 +374,15 @@ class SDKConnect {
   Future<void> acceptCall({
     SDKConnectCallType? callType,
   }) {
-    return _acceptCallInternal(callType: callType);
+    throw StateError(
+      'acceptCall is removed from SDKConnect. Signaling/invitation flow is handled externally.',
+    );
   }
 
   Future<void> rejectCall({String reason = 'rejected'}) {
-    return _voiceSdk.rejectCall(reason: reason);
+    throw StateError(
+      'rejectCall is removed from SDKConnect. Signaling/invitation flow is handled externally.',
+    );
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) {
@@ -539,9 +422,6 @@ class SDKConnect {
 
     await video._dispose();
     await _voiceSdk.dispose();
-    if (_ownsSignaling) {
-      await _signaling.dispose();
-    }
     if (_ownsEngine) {
       await _callEngine.dispose();
     }
@@ -601,23 +481,10 @@ class SDKConnect {
 
   Future<void> _acceptCallInternal({
     SDKConnectCallType? callType,
-  }) async {
-    final sessionType = _callEngine.state.session?.callType.toPublic();
-    if (callType != null && sessionType != null && callType != sessionType) {
-      throw StateError(
-        'Incoming call type mismatch. Expected ${sessionType.name}, got ${callType.name}.',
-      );
-    }
-    final resolvedType = sessionType ?? callType ?? SDKConnectCallType.voice;
-    _ensureVideoOrVoice(resolvedType);
-    try {
-      await _voiceSdk.acceptCall();
-      if (resolvedType == SDKConnectCallType.video) {
-        await _callEngine.setVideoEnabled(true);
-      }
-    } finally {
-      _nextOutgoingCallType = _resolveCurrentCallType();
-    }
+  }) {
+    throw StateError(
+      'acceptCall is removed from SDKConnect. Signaling/invitation flow is handled externally.',
+    );
   }
 
   SDKConnectCallType _resolveCurrentCallType() {
@@ -631,14 +498,6 @@ class SDKConnect {
   SDKConnectCallType _resolveRequestCallType(VoiceCallTokenRequest request) {
     final session = _callEngine.state.session;
     if (session != null && session.callId == request.callId) {
-      return session.callType.toPublic();
-    }
-    return _nextOutgoingCallType;
-  }
-
-  SDKConnectCallType _resolveOutboundCallType() {
-    final session = _callEngine.state.session;
-    if (session != null) {
       return session.callType.toPublic();
     }
     return _nextOutgoingCallType;
@@ -781,48 +640,6 @@ class SDKConnectVideoApi {
 
   Future<void> _dispose() {
     return _videoSdk.dispose();
-  }
-}
-
-class _SDKConnectSignalingTransportAdapter
-    implements VoiceCallSignalingTransport {
-  _SDKConnectSignalingTransportAdapter(
-    this._delegate, {
-    required SDKConnectCallType Function() currentCallType,
-  }) : _currentCallType = currentCallType;
-
-  final SDKConnectSignalingTransport _delegate;
-  final SDKConnectCallType Function() _currentCallType;
-
-  @override
-  Stream<VoiceCallSignal> get signals =>
-  _delegate.signals.map((signal) => signal._toVoiceSignal());
-
-  @override
-  Future<void> send(VoiceCallSignal signal) {
-    return _delegate.send(
-      SDKConnectSignal._fromVoice(
-        signal.copyWithCallType(_currentCallType().toCore()),
-      ),
-    );
-  }
-
-  @override
-  Future<void> dispose() {
-    return _delegate.dispose();
-  }
-}
-
-extension on VoiceCallSignal {
-  VoiceCallSignal copyWithCallType(CallType callType) {
-    return VoiceCallSignal(
-      type: type,
-      callId: callId,
-      fromUserId: fromUserId,
-      toUserId: toUserId,
-      callType: callType,
-      reason: reason,
-    );
   }
 }
 

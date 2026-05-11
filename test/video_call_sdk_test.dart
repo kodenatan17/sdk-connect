@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sdk_connect/core/enums/call_type.dart';
 import 'package:sdk_connect/core/enums/call_phase.dart';
+import 'package:sdk_connect/core/enums/call_type.dart';
+import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
 import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/infrastructure/media/media_engine.dart';
@@ -16,17 +17,14 @@ void main() {
     token: 'header.payload.signature',
   );
 
-  test('VideoCallSdk enables camera on start call while reusing VoiceCallSdk flow', () async {
+  test('VideoCallSdk starts media session and enables camera', () async {
     final media = _FakeMediaEngine();
-    final signaling = _FakeSignalingTransport();
     final engine = CallEngine(mediaEngine: media, logger: _InMemoryLogger());
 
     final voiceSdk = VoiceCallSdk(
       localUserId: 'user-a',
       callEngine: engine,
-      signaling: signaling,
       tokenProvider: (_) async => validCredentials,
-      signalValidator: (_) async => true,
     );
 
     final pip = _FakePipController();
@@ -38,12 +36,10 @@ void main() {
 
     await videoSdk.startCall(peerId: 'user-b', callId: 'call-vid-1');
 
-    expect(engine.state.phase, CallPhase.dialing);
+    expect(engine.state.phase, CallPhase.connected);
     expect(engine.state.session?.callType, CallType.video);
     expect(engine.state.isVideoEnabled, isTrue);
     expect(media.isVideoEnabled, isTrue);
-    expect(signaling.sentSignals.single.type, VoiceCallSignalType.invite);
-    expect(signaling.sentSignals.single.callType, CallType.video);
 
     await videoSdk.enterPictureInPicture();
     expect(pip.isEnabled, isTrue);
@@ -55,25 +51,22 @@ void main() {
     await voiceSdk.dispose();
     await engine.dispose();
   });
-}
 
-class _FakeSignalingTransport implements VoiceCallSignalingTransport {
-  final List<VoiceCallSignal> sentSignals = <VoiceCallSignal>[];
-  final StreamController<VoiceCallSignal> _controller =
-      StreamController<VoiceCallSignal>.broadcast();
+  test('VideoCallSdk no longer owns invitation accept/reject', () async {
+    final sdk = VideoCallSdk(
+      voiceSdk: VoiceCallSdk(
+        localUserId: 'user-a',
+        callEngine: CallEngine(mediaEngine: _FakeMediaEngine(), logger: _InMemoryLogger()),
+        tokenProvider: (_) async => validCredentials,
+      ),
+      callEngine: CallEngine(mediaEngine: _FakeMediaEngine(), logger: _InMemoryLogger()),
+    );
 
-  @override
-  Stream<VoiceCallSignal> get signals => _controller.stream;
+    await expectLater(() => sdk.acceptCall(), throwsA(isA<CallLifecycleException>()));
+    await expectLater(() => sdk.rejectCall(), throwsA(isA<CallLifecycleException>()));
 
-  @override
-  Future<void> send(VoiceCallSignal signal) async {
-    sentSignals.add(signal);
-  }
-
-  @override
-  Future<void> dispose() async {
-    await _controller.close();
-  }
+    await sdk.dispose();
+  });
 }
 
 class _FakeMediaEngine implements MediaEngine {
