@@ -1,20 +1,31 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:sdk_connect/core/enums/call_phase.dart';
 import 'package:sdk_connect/sdk/sdk_connect_api.dart';
 
+/// Reusable voice-call widget for consumer UI integration.
+///
+/// Consumes [SDKConnect] runtime state exclusively — it owns no signaling or
+/// reconnect logic. Supply [callbacks] to react to lifecycle transitions.
+///
+/// Widget phase mapping:
+/// - CALLING   → [SDKConnectConnectionState.connecting]
+/// - CONNECTED → [SDKConnectConnectionState.connected] | [SDKConnectConnectionState.reconnecting]
+/// - ENDED     → [SDKConnectConnectionState.disconnected] | [SDKConnectConnectionState.failed]
 class RemoteVoiceCallWidget extends StatefulWidget {
   const RemoteVoiceCallWidget({
     super.key,
     required this.sdk,
     this.title,
-    this.onCallEnded,
+    this.callbacks = const SDKConnectWidgetCallbacks(),
   });
 
   final SDKConnect sdk;
   final String? title;
-  final VoidCallback? onCallEnded;
+
+  /// Lifecycle callbacks for consumer UI integration.
+  /// All handlers are optional.
+  final SDKConnectWidgetCallbacks callbacks;
 
   @override
   State<RemoteVoiceCallWidget> createState() => _RemoteVoiceCallWidgetState();
@@ -22,6 +33,8 @@ class RemoteVoiceCallWidget extends StatefulWidget {
 
 class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
   StreamSubscription<SDKConnectRuntimeState>? _subscription;
+  SDKConnectConnectionState? _prevConnectionState;
+  SDKConnectWidgetPhase? _prevWidgetPhase;
   bool _hasNotifiedTerminal = false;
 
   @override
@@ -38,6 +51,8 @@ class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
       return;
     }
     _subscription?.cancel();
+    _prevConnectionState = null;
+    _prevWidgetPhase = null;
     _hasNotifiedTerminal = false;
     _subscription = widget.sdk.runtimeStates.listen(_handleRuntimeState);
     _handleRuntimeState(widget.sdk.runtimeState);
@@ -50,17 +65,36 @@ class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
   }
 
   void _handleRuntimeState(SDKConnectRuntimeState runtime) {
-    final isTerminal = runtime.callState.phase == CallPhase.disconnected ||
-        runtime.callState.phase == CallPhase.failed;
-    if (isTerminal) {
-      if (_hasNotifiedTerminal) {
-        return;
-      }
-      _hasNotifiedTerminal = true;
-      widget.onCallEnded?.call();
-      return;
+    final conn = runtime.connectionState;
+    final phase = SDKConnectWidgetPhase.from(conn);
+
+    // Phase-change notification.
+    if (_prevWidgetPhase != phase) {
+      _prevWidgetPhase = phase;
+      widget.callbacks.onCallStateChanged?.call(phase);
     }
-    _hasNotifiedTerminal = false;
+
+    // Reconnect notification — fires once per reconnecting entry.
+    if (conn == SDKConnectConnectionState.reconnecting &&
+        _prevConnectionState != SDKConnectConnectionState.reconnecting) {
+      widget.callbacks.onReconnect?.call();
+    }
+
+    // Terminal state handling — deduplicated.
+    final isTerminal = conn == SDKConnectConnectionState.disconnected ||
+        conn == SDKConnectConnectionState.failed;
+
+    if (isTerminal) {
+      if (!_hasNotifiedTerminal) {
+        _hasNotifiedTerminal = true;
+        widget.callbacks.onDisconnected?.call(runtime.callState.reason);
+        widget.callbacks.onEnded?.call(runtime.callState.reason);
+      }
+    } else {
+      _hasNotifiedTerminal = false;
+    }
+
+    _prevConnectionState = conn;
   }
 
   @override
@@ -71,7 +105,8 @@ class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
       builder: (context, snapshot) {
         final runtime = snapshot.data ?? widget.sdk.runtimeState;
         final call = runtime.callState;
-        final peerId = runtime.participants.remoteParticipantId ?? call.session?.peerId ?? 'Remote';
+        final peerId =
+            runtime.participants.remoteParticipantId ?? call.session?.peerId ?? 'Remote';
         final isConnected = runtime.connectionState == SDKConnectConnectionState.connected;
         final isReconnecting =
             runtime.connectionState == SDKConnectConnectionState.reconnecting;
@@ -115,7 +150,7 @@ class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Audio route: ${runtime.media.audioRoute.name}',
+                    'Audio route: \${runtime.media.audioRoute.name}',
                     style: Theme.of(context).textTheme.labelMedium,
                   ),
                   const Spacer(),

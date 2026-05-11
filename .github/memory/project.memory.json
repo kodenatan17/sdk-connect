@@ -393,5 +393,70 @@
       "createCallId pattern is documented for consumer usage",
       "Docs remain aligned with SDK-only consumer usage (no direct LiveKit imports)"
     ]
+  },
+
+  "ARCH_WIDGET_PHASE_MAPPING_V1": {
+    "description": "SDKConnectWidgetPhase maps RTC connection states to 3 consumer-facing widget phases",
+    "rules": [
+      "Phases: calling (connecting), connected (connected|reconnecting), ended (disconnected|failed)",
+      "Static method SDKConnectWidgetPhase.from(SDKConnectConnectionState) is the single source of truth for mapping",
+      "Defined in sdk_connect_api.dart"
+    ]
+  },
+
+  "ARCH_WIDGET_CALLBACKS_V1": {
+    "description": "SDKConnectWidgetCallbacks exposes 4 optional consumer callbacks for widget phase and lifecycle events",
+    "rules": [
+      "onCallStateChanged(phase): fires on every widget phase transition",
+      "onReconnect(): fires once per reconnecting entry via prev-state comparison",
+      "onDisconnected(reason): fires on terminal states (disconnected|failed)",
+      "onEnded(reason): fires exactly once per terminal state via _hasNotifiedTerminal guard",
+      "Defined in sdk_connect_api.dart"
+    ]
+  },
+
+  "RULE_WIDGET_OBSERVER_ONLY_V1": {
+    "description": "Remote widgets are pure observers and own no lifecycle, signaling, or reconnect logic",
+    "rules": [
+      "RemoteVoiceCallWidget and RemoteVideoCallWidget fire callbacks but do not own lifecycle",
+      "CallEngine remains the SSOT for all lifecycle decisions",
+      "Widgets must not initiate reconnect or signaling flows"
+    ]
+  },
+
+  "ARCH_VIDEO_WIDGET_STATEFUL_V1": {
+    "description": "RemoteVideoCallWidget is a StatefulWidget to support subscription lifecycle and callback deduplication",
+    "rules": [
+      "Converted from StatelessWidget to StatefulWidget",
+      "State owns stream subscription and dedup tracking flags",
+      "didUpdateWidget re-wires subscription and resets tracking state when sdk instance changes"
+    ]
+  },
+
+  "RULE_RECONNECT_CALLBACK_DEDUP_V1": {
+    "description": "onReconnect and onEnded callbacks are deduplicated with per-lifecycle guards",
+    "rules": [
+      "onReconnect fires once per reconnecting entry via _prevConnectionState comparison",
+      "onEnded fires exactly once per terminal lifecycle via _hasNotifiedTerminal flag",
+      "_hasNotifiedTerminal and _prevConnectionState are reset in didUpdateWidget on sdk instance change"
+    ]
+  },
+
+  "RULE_TERMINAL_STATES_V1": {
+    "description": "Terminal states that trigger disconnect and ended callbacks are disconnected and failed",
+    "rules": [
+      "disconnected and failed both fire onDisconnected + onEnded",
+      "idle is not a terminal trigger",
+      "Terminal callbacks are protected against duplicate emission via _hasNotifiedTerminal"
+    ]
+  },
+
+  "RULE_SDK_INSTANCE_REWIRE_V1": {
+    "description": "Widget state is fully reset and re-wired when the sdk instance changes via didUpdateWidget",
+    "rules": [
+      "Subscription is cancelled and re-subscribed on sdk instance change",
+      "_prevConnectionState and _hasNotifiedTerminal are reset on sdk instance change",
+      "Applies to both RemoteVoiceCallWidget and RemoteVideoCallWidget"
+    ]
   }
 }

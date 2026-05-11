@@ -1,13 +1,15 @@
 {
-  "feature": "README updated with small navigation snippet for feature-based example flow",
+  "feature": "SDKConnect widget lifecycle mapping refactor",
   "agents": [
-    "mbg-memory-system",
-    "solo-orchestrator"
+    "joko-builder",
+    "senior-reviewer",
+    "pakpol-security"
   ],
   "skills": [
     "sdk-architecture-skill",
+    "realtime-lifecycle-safety-skill",
     "sdkconnect-consumer-skill"
   ],
   "outcome": "success",
-  "round": 14
+  "round": 15
 }

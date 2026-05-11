@@ -24,6 +24,63 @@ enum SDKConnectConnectionState {
   failed,
 }
 
+/// Widget-level lifecycle phase that aggregates SDKConnect RTC states with
+/// business signaling categories for consumer UI rendering.
+///
+/// Mapping:
+/// - [calling]   → SDKConnect `connecting`          (dialing / ringing)
+/// - [connected] → SDKConnect `connected` or `reconnecting`
+/// - [ended]     → SDKConnect `disconnected` or `failed` (rejected / ended)
+enum SDKConnectWidgetPhase {
+  /// Pre-media phase: outgoing dialing or incoming ringing.
+  calling,
+
+  /// Media session active; includes temporary reconnecting intervals.
+  connected,
+
+  /// Call has terminated (rejected, disconnected, or ended by any party).
+  ended;
+
+  /// Maps an [SDKConnectConnectionState] to its corresponding widget phase.
+  static SDKConnectWidgetPhase from(SDKConnectConnectionState state) {
+    return switch (state) {
+      SDKConnectConnectionState.idle => SDKConnectWidgetPhase.ended,
+      SDKConnectConnectionState.connecting => SDKConnectWidgetPhase.calling,
+      SDKConnectConnectionState.connected => SDKConnectWidgetPhase.connected,
+      SDKConnectConnectionState.reconnecting => SDKConnectWidgetPhase.connected,
+      SDKConnectConnectionState.disconnected => SDKConnectWidgetPhase.ended,
+      SDKConnectConnectionState.failed => SDKConnectWidgetPhase.ended,
+    };
+  }
+}
+
+/// Standardised widget-layer callbacks for consumer UI integration.
+///
+/// Widgets fire these callbacks as observers; they do not own lifecycle logic.
+/// All handlers are optional — supply only what the consumer needs.
+class SDKConnectWidgetCallbacks {
+  const SDKConnectWidgetCallbacks({
+    this.onCallStateChanged,
+    this.onReconnect,
+    this.onDisconnected,
+    this.onEnded,
+  });
+
+  /// Fired every time the [SDKConnectWidgetPhase] changes.
+  final void Function(SDKConnectWidgetPhase phase)? onCallStateChanged;
+
+  /// Fired once each time the RTC transport enters a reconnecting state
+  /// (LiveKit reconnect / network degradation / ICE recovery).
+  final void Function()? onReconnect;
+
+  /// Fired when the session reaches a disconnected or failed state.
+  final void Function(String? reason)? onDisconnected;
+
+  /// Fired exactly once when the call reaches its terminal state.
+  /// Deduplicated — safe to use for navigation / cleanup.
+  final void Function(String? reason)? onEnded;
+}
+
 enum SDKConnectAudioRoute {
   earpiece,
   speaker,
