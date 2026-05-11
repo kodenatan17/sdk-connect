@@ -208,11 +208,10 @@ void main() {
 class _FakeMediaEngine implements MediaEngine {
   _FakeMediaEngine({
     this.throwOnConnect = false,
-    this.connectFailuresBeforeSuccess = 0,
   });
 
   final bool throwOnConnect;
-  int connectFailuresBeforeSuccess;
+  int connectFailuresBeforeSuccess = 0;
 
   int connectCount = 0;
   int disconnectCount = 0;

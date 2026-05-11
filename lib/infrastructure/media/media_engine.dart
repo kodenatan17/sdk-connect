@@ -1,6 +1,12 @@
 enum MediaEngineEventType {
   disconnected,
   p2pLimitExceeded,
+  participantJoined,
+  participantLeft,
+  localAudioChanged,
+  remoteAudioChanged,
+  localVideoChanged,
+  remoteVideoChanged,
   reconnecting,
   reconnected,
   iceRestarting,
@@ -66,12 +72,16 @@ class MediaEngineEvent {
     this.reason,
     this.networkQuality,
     this.audioRoute,
+    this.participantId,
+    this.enabled,
   });
 
   final MediaEngineEventType type;
   final String? reason;
   final MediaNetworkQuality? networkQuality;
   final MediaAudioRoute? audioRoute;
+  final String? participantId;
+  final bool? enabled;
 }
 
 abstract class MediaEngine {

@@ -5,6 +5,8 @@ export 'core/errors/call_lifecycle_exception.dart';
 export 'core/models/call_session.dart';
 export 'core/models/call_state.dart';
 export 'core/utils/structured_logger.dart';
+export 'presentation/video/remote_video_call_widget.dart';
 export 'presentation/video/video_call_widgets.dart';
+export 'presentation/voice/remote_voice_call_widget.dart';
 export 'sdk/sdk_connect_api.dart';
 export 'sdk/video_picture_in_picture.dart';

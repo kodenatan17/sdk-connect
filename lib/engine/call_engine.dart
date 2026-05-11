@@ -73,10 +73,17 @@ enum CallAudioRoute {
 
 enum CallEngineEventType {
   lifecycleChanged,
+  participantJoined,
+  participantLeft,
   interruptionStarted,
   interruptionRecovered,
   mediaSessionRestored,
   audioRouteChanged,
+  networkQualityChanged,
+  localAudioChanged,
+  remoteAudioChanged,
+  localVideoChanged,
+  remoteVideoChanged,
   reconnecting,
   recovered,
   reconnectFailed,
@@ -347,6 +354,14 @@ class CallEngine {
         updatedAt: _clock(),
       );
       _controller.add(_state);
+      _emitEngineEvent(
+        CallEngineEvent(
+          type: CallEngineEventType.localAudioChanged,
+          callId: _state.session?.callId,
+          reason: muted ? 'local_audio_disabled' : 'local_audio_enabled',
+          timestamp: _clock(),
+        ),
+      );
       _log(
         'call.mute_updated',
         <String, Object?>{
@@ -409,6 +424,14 @@ class CallEngine {
         updatedAt: _clock(),
       );
       _controller.add(_state);
+      _emitEngineEvent(
+        CallEngineEvent(
+          type: CallEngineEventType.localVideoChanged,
+          callId: _state.session?.callId,
+          reason: enabled ? 'local_video_enabled' : 'local_video_disabled',
+          timestamp: _clock(),
+        ),
+      );
       _log(
         'call.video_updated',
         <String, Object?>{
@@ -652,6 +675,75 @@ class CallEngine {
       case MediaEngineEventType.disconnected:
         _handleMediaDisconnected(event.reason ?? 'media_disconnected');
         return;
+      case MediaEngineEventType.participantJoined:
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.participantJoined,
+            callId: _state.session?.callId,
+            reason: event.participantId,
+            timestamp: _clock(),
+          ),
+        );
+        return;
+      case MediaEngineEventType.participantLeft:
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.participantLeft,
+            callId: _state.session?.callId,
+            reason: event.participantId,
+            timestamp: _clock(),
+          ),
+        );
+        _handleMediaDisconnected('remote_participant_left');
+        return;
+      case MediaEngineEventType.localAudioChanged:
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.localAudioChanged,
+            callId: _state.session?.callId,
+            reason: event.enabled == true
+                ? 'local_audio_enabled'
+                : 'local_audio_disabled',
+            timestamp: _clock(),
+          ),
+        );
+        return;
+      case MediaEngineEventType.remoteAudioChanged:
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.remoteAudioChanged,
+            callId: _state.session?.callId,
+            reason: event.enabled == true
+                ? 'remote_audio_enabled'
+                : 'remote_audio_disabled',
+            timestamp: _clock(),
+          ),
+        );
+        return;
+      case MediaEngineEventType.localVideoChanged:
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.localVideoChanged,
+            callId: _state.session?.callId,
+            reason: event.enabled == true
+                ? 'local_video_enabled'
+                : 'local_video_disabled',
+            timestamp: _clock(),
+          ),
+        );
+        return;
+      case MediaEngineEventType.remoteVideoChanged:
+        _emitEngineEvent(
+          CallEngineEvent(
+            type: CallEngineEventType.remoteVideoChanged,
+            callId: _state.session?.callId,
+            reason: event.enabled == true
+                ? 'remote_video_enabled'
+                : 'remote_video_disabled',
+            timestamp: _clock(),
+          ),
+        );
+        return;
       case MediaEngineEventType.reconnecting:
         _emitEngineEvent(
           CallEngineEvent(
@@ -733,6 +825,15 @@ class CallEngine {
 
   void _handleMediaDisconnected(String reason) {
     if (_state.phase == CallPhase.idle) {
+      return;
+    }
+
+    if (reason == 'remote_participant_left') {
+      _handleUnexpectedTermination(
+        reason: reason,
+        event: 'call.remote_participant_left',
+        cleanupEvent: 'remote_participant_left_cleanup',
+      );
       return;
     }
 
@@ -1074,6 +1175,15 @@ class CallEngine {
     if (_state.phase != CallPhase.connected && _state.phase != CallPhase.reconnecting) {
       return;
     }
+
+    _emitEngineEvent(
+      CallEngineEvent(
+        type: CallEngineEventType.networkQualityChanged,
+        callId: _state.session?.callId,
+        networkScore: quality.score,
+        timestamp: _clock(),
+      ),
+    );
 
     if (quality.score <= _networkThresholds.weakScore) {
       _stableNetworkTimer?.cancel();

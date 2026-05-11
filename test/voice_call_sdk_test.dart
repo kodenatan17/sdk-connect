@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sdk_connect/core/enums/call_phase.dart';
-import 'package:sdk_connect/core/enums/call_direction.dart';
 import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
 import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';

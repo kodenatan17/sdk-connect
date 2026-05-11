@@ -6,8 +6,6 @@ import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 import 'package:sdk_connect/sdk_connect.dart';
 
 import 'config/config_sdk.dart';
-import 'video/video_call_screen.dart';
-import 'voice/voice_call_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +38,9 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   SDKConnect? _sdk;
   Object? _error;
 
+  final List<String> _timeline = <String>[];
+  SDKConnectCallType _preferredWidgetMode = SDKConnectCallType.voice;
+
   @override
   void initState() {
     super.initState();
@@ -52,28 +53,46 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
         localUserId: ConfigSdk.localUserId,
         tokenProvider: _config.createTokenProvider(),
         callbacks: SDKConnectCallbacks(
-          onUser: (event) {
-            if (!mounted) {
-              return;
-            }
-            switch (event.type) {
-              case SDKConnectUserEventType.outgoingStarted:
-                break;
-              case SDKConnectUserEventType.ended:
-                _showMessage('Call ended: ${event.reason ?? 'ended'}');
-              case SDKConnectUserEventType.p2pLimitExceeded:
-                _showMessage('P2P only: max 2 participants per room.');
-              case SDKConnectUserEventType.incomingReceived:
-              case SDKConnectUserEventType.accepted:
-              case SDKConnectUserEventType.rejected:
-                break;
+          onConnectionStateChanged: (state, callState) {
+            _addTimeline('connection: ${state.name} (${callState.reason ?? 'ok'})');
+          },
+          onReconnecting: (_) {
+            _addTimeline('reconnecting...');
+            _showMessage('Trying to recover connection...');
+          },
+          onReconnected: (_) {
+            _addTimeline('reconnected');
+            _showMessage('Connection recovered');
+          },
+          onConnectionLost: (state, reason) {
+            _addTimeline('connection_lost: ${reason ?? 'unknown'}');
+            _showMessage('Connection lost: ${reason ?? 'unknown'}');
+            if (state.reason == 'remote_participant_left') {
+              _showMessage('Remote participant left the call.');
             }
           },
+          onParticipantJoined: (participantId) {
+            _addTimeline('participant_joined: $participantId');
+          },
+          onParticipantLeft: (participantId) {
+            _addTimeline('participant_left: $participantId');
+            _showMessage('Participant left: $participantId');
+          },
+          onCallWarning: (warning, _) {
+            _addTimeline('warning: $warning');
+          },
+          onCallRecovered: (reason, _) {
+            _addTimeline('recovered: $reason');
+          },
+          onNetworkQualityChanged: (network) {
+            _addTimeline('network: score=${network.score ?? -1}, weak=${network.isWeak}');
+          },
+          onAudioRouteChanged: (route) {
+            _addTimeline('audio_route: ${route.name}');
+          },
           onError: (event) {
-            if (!mounted) {
-              return;
-            }
-            _showMessage('SDKConnect error on ${event.operation}.');
+            _addTimeline('error: ${event.operation}');
+            _showMessage('SDK error on ${event.operation}.');
           },
         ),
       );
@@ -105,37 +124,24 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
     super.dispose();
   }
 
-  Future<void> _startOutgoingVoiceCall() async {
+  Future<void> _startOutgoing(SDKConnectCallType callType) async {
     final sdk = _sdk;
     if (sdk == null) {
       return;
     }
 
     try {
-      await sdk.voice.startCall(callId: _randomCallId(), peerId: 'peer-b');
+      await sdk.startCall(
+        callId: _randomCallId(),
+        peerId: 'peer-b',
+        callType: callType,
+      );
     } on P2PLimitExceededException {
       _showMessage('P2P only: max 2 participants per room.');
     } on StateError {
       _showMessage('Missing SDK runtime configuration.');
     } catch (_) {
-      _showMessage('Failed to start outgoing voice call.');
-    }
-  }
-
-  Future<void> _startOutgoingVideoCall() async {
-    final sdk = _sdk;
-    if (sdk == null) {
-      return;
-    }
-
-    try {
-      await sdk.video.startCall(callId: _randomCallId(), peerId: 'peer-b');
-    } on P2PLimitExceededException {
-      _showMessage('P2P only: max 2 participants per room.');
-    } on StateError {
-      _showMessage('Missing SDK runtime configuration.');
-    } catch (_) {
-      _showMessage('Failed to start outgoing video call.');
+      _showMessage('Failed to start outgoing call.');
     }
   }
 
@@ -165,9 +171,19 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _addTimeline(String message) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _timeline.insert(0, '${DateTime.now().toIso8601String()}  $message');
+      if (_timeline.length > 25) {
+        _timeline.removeRange(25, _timeline.length);
+      }
+    });
   }
 
   @override
@@ -192,87 +208,197 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
       );
     }
 
-    return StreamBuilder<CallState>(
-      initialData: sdk.state,
-      stream: sdk.states,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('SDK Connect Example'),
+          bottom: const TabBar(
+            tabs: <Widget>[
+              Tab(text: 'SDK Only'),
+              Tab(text: 'Plug-and-Play Widget'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: <Widget>[
+            _SdkOnlyDemo(
+              sdk: sdk,
+              timeline: _timeline,
+              onStartVoice: () => _startOutgoing(SDKConnectCallType.voice),
+              onStartVideo: () => _startOutgoing(SDKConnectCallType.video),
+              onEnd: _endCall,
+            ),
+            _WidgetDemo(
+              sdk: sdk,
+              preferredMode: _preferredWidgetMode,
+              onModeChanged: (mode) {
+                setState(() {
+                  _preferredWidgetMode = mode;
+                });
+              },
+              onStart: () => _startOutgoing(_preferredWidgetMode),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SdkOnlyDemo extends StatelessWidget {
+  const _SdkOnlyDemo({
+    required this.sdk,
+    required this.timeline,
+    required this.onStartVoice,
+    required this.onStartVideo,
+    required this.onEnd,
+  });
+
+  final SDKConnect sdk;
+  final List<String> timeline;
+  final Future<void> Function() onStartVoice;
+  final Future<void> Function() onStartVideo;
+  final Future<void> Function() onEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<SDKConnectRuntimeState>(
+      stream: sdk.runtimeStates,
+      initialData: sdk.runtimeState,
       builder: (context, snapshot) {
-        final state = snapshot.data ?? sdk.state;
-        if (state.phase == CallPhase.idle) {
-          return _IdleScreen(
-            onStartOutgoingVoice: _startOutgoingVoiceCall,
-            onStartOutgoingVideo: _startOutgoingVideoCall,
-          );
-        }
-
-        final callType = state.session?.callType ?? CallType.voice;
-        if (callType == CallType.video) {
-          return VideoCallScreen(
-            state: state,
-            onEnd: _endCall,
-            onToggleMute: sdk.video.toggleMute,
-            onToggleSpeaker: sdk.video.toggleSpeaker,
-            onToggleCamera: sdk.video.toggleCamera,
-          );
-        }
-
-        return VoiceCallScreen(
-          state: state,
-          onEnd: _endCall,
-          onToggleMute: sdk.voice.toggleMute,
-          onToggleSpeaker: sdk.voice.toggleSpeaker,
+        final runtime = snapshot.data ?? sdk.runtimeState;
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'Connection: ${runtime.connectionState.name}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text('Participant: ${runtime.participants.remoteParticipantId ?? '-'}'),
+              Text('Audio route: ${runtime.media.audioRoute.name}'),
+              Text('Weak network: ${runtime.network.isWeak}'),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: <Widget>[
+                  FilledButton(
+                    onPressed: onStartVoice,
+                    child: const Text('Start Voice'),
+                  ),
+                  FilledButton(
+                    onPressed: onStartVideo,
+                    child: const Text('Start Video'),
+                  ),
+                  OutlinedButton(
+                    onPressed: sdk.toggleMute,
+                    child: Text(runtime.media.localAudioEnabled ? 'Mute' : 'Unmute'),
+                  ),
+                  OutlinedButton(
+                    onPressed: sdk.toggleSpeaker,
+                    child: const Text('Toggle Speaker'),
+                  ),
+                  OutlinedButton(
+                    onPressed: sdk.video.toggleCamera,
+                    child: Text(runtime.media.localVideoEnabled ? 'Camera Off' : 'Camera On'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: onEnd,
+                    child: const Text('End Call'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text('Lifecycle/Recovery Timeline', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: timeline.length,
+                  itemBuilder: (context, index) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text(timeline[index]),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
   }
 }
 
-class _IdleScreen extends StatelessWidget {
-  const _IdleScreen({
-    required this.onStartOutgoingVoice,
-    required this.onStartOutgoingVideo,
+class _WidgetDemo extends StatelessWidget {
+  const _WidgetDemo({
+    required this.sdk,
+    required this.preferredMode,
+    required this.onModeChanged,
+    required this.onStart,
   });
 
-  final Future<void> Function() onStartOutgoingVoice;
-  final Future<void> Function() onStartOutgoingVideo;
+  final SDKConnect sdk;
+  final SDKConnectCallType preferredMode;
+  final ValueChanged<SDKConnectCallType> onModeChanged;
+  final Future<void> Function() onStart;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('SDK Connect Example')),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Text(
-                  'Voice & Video Call SDK Demo',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Flow: init -> call -> end\nPolicy: P2P only (max 2 participants)',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 24),
-                FilledButton.icon(
-                  onPressed: () => onStartOutgoingVoice(),
-                  icon: const Icon(Icons.call),
-                  label: const Text('Start Outgoing Voice Call'),
-                ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: () => onStartOutgoingVideo(),
-                  icon: const Icon(Icons.videocam),
-                  label: const Text('Start Outgoing Video Call'),
-                ),
-              ],
+    return StreamBuilder<SDKConnectRuntimeState>(
+      stream: sdk.runtimeStates,
+      initialData: sdk.runtimeState,
+      builder: (context, snapshot) {
+        final runtime = snapshot.data ?? sdk.runtimeState;
+
+        if (runtime.connectionState == SDKConnectConnectionState.idle) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  SegmentedButton<SDKConnectCallType>(
+                    segments: const <ButtonSegment<SDKConnectCallType>>[
+                      ButtonSegment<SDKConnectCallType>(
+                        value: SDKConnectCallType.voice,
+                        icon: Icon(Icons.call),
+                        label: Text('Voice Widget'),
+                      ),
+                      ButtonSegment<SDKConnectCallType>(
+                        value: SDKConnectCallType.video,
+                        icon: Icon(Icons.videocam),
+                        label: Text('Video Widget'),
+                      ),
+                    ],
+                    selected: <SDKConnectCallType>{preferredMode},
+                    onSelectionChanged: (selection) {
+                      onModeChanged(selection.first);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: onStart,
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Start Plug-and-Play Call'),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
-      ),
+          );
+        }
+
+        final isVideo = runtime.callState.session?.callType == CallType.video;
+        if (isVideo) {
+          return RemoteVideoCallWidget(sdk: sdk);
+        }
+
+        return RemoteVoiceCallWidget(sdk: sdk);
+      },
     );
   }
 }

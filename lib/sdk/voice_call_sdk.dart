@@ -528,6 +528,14 @@ class VoiceCallSdk with WidgetsBindingObserver {
           ),
         );
         return;
+      case CallEngineEventType.participantJoined:
+      case CallEngineEventType.participantLeft:
+      case CallEngineEventType.networkQualityChanged:
+      case CallEngineEventType.localAudioChanged:
+      case CallEngineEventType.remoteAudioChanged:
+      case CallEngineEventType.localVideoChanged:
+      case CallEngineEventType.remoteVideoChanged:
+        return;
       case CallEngineEventType.reconnecting:
         _callbacks.onConnection?.call(
           VoiceCallConnectionEvent(

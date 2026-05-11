@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:sdk_connect/core/enums/call_type.dart';
 import 'package:sdk_connect/core/enums/call_direction.dart';
+import 'package:sdk_connect/core/enums/call_phase.dart';
+import 'package:sdk_connect/core/enums/call_type.dart';
 import 'package:sdk_connect/core/models/call_state.dart';
 import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
@@ -12,6 +13,178 @@ import 'package:sdk_connect/sdk/voice_call_sdk.dart';
 enum SDKConnectCallType {
   voice,
   video,
+}
+
+enum SDKConnectConnectionState {
+  idle,
+  connecting,
+  connected,
+  reconnecting,
+  disconnected,
+  failed,
+}
+
+enum SDKConnectAudioRoute {
+  earpiece,
+  speaker,
+  bluetooth,
+  wiredHeadset,
+  unknown,
+}
+
+class SDKConnectParticipantState {
+  const SDKConnectParticipantState({
+    this.localParticipantId,
+    this.remoteParticipantId,
+    required this.hasRemoteParticipant,
+  });
+
+  final String? localParticipantId;
+  final String? remoteParticipantId;
+  final bool hasRemoteParticipant;
+
+  SDKConnectParticipantState copyWith({
+    String? localParticipantId,
+    String? remoteParticipantId,
+    bool? hasRemoteParticipant,
+  }) {
+    return SDKConnectParticipantState(
+      localParticipantId: localParticipantId ?? this.localParticipantId,
+      remoteParticipantId: remoteParticipantId ?? this.remoteParticipantId,
+      hasRemoteParticipant: hasRemoteParticipant ?? this.hasRemoteParticipant,
+    );
+  }
+}
+
+class SDKConnectMediaState {
+  const SDKConnectMediaState({
+    required this.localAudioEnabled,
+    required this.remoteAudioEnabled,
+    required this.localVideoEnabled,
+    required this.remoteVideoEnabled,
+    required this.audioRoute,
+  });
+
+  final bool localAudioEnabled;
+  final bool remoteAudioEnabled;
+  final bool localVideoEnabled;
+  final bool remoteVideoEnabled;
+  final SDKConnectAudioRoute audioRoute;
+
+  SDKConnectMediaState copyWith({
+    bool? localAudioEnabled,
+    bool? remoteAudioEnabled,
+    bool? localVideoEnabled,
+    bool? remoteVideoEnabled,
+    SDKConnectAudioRoute? audioRoute,
+  }) {
+    return SDKConnectMediaState(
+      localAudioEnabled: localAudioEnabled ?? this.localAudioEnabled,
+      remoteAudioEnabled: remoteAudioEnabled ?? this.remoteAudioEnabled,
+      localVideoEnabled: localVideoEnabled ?? this.localVideoEnabled,
+      remoteVideoEnabled: remoteVideoEnabled ?? this.remoteVideoEnabled,
+      audioRoute: audioRoute ?? this.audioRoute,
+    );
+  }
+}
+
+class SDKConnectNetworkState {
+  const SDKConnectNetworkState({
+    this.score,
+    required this.isWeak,
+    required this.isRecovered,
+  });
+
+  final int? score;
+  final bool isWeak;
+  final bool isRecovered;
+
+  SDKConnectNetworkState copyWith({
+    int? score,
+    bool clearScore = false,
+    bool? isWeak,
+    bool? isRecovered,
+  }) {
+    return SDKConnectNetworkState(
+      score: clearScore ? null : (score ?? this.score),
+      isWeak: isWeak ?? this.isWeak,
+      isRecovered: isRecovered ?? this.isRecovered,
+    );
+  }
+}
+
+class SDKConnectRuntimeState {
+  const SDKConnectRuntimeState({
+    required this.callState,
+    required this.connectionState,
+    required this.participants,
+    required this.media,
+    required this.network,
+  });
+
+  final CallState callState;
+  final SDKConnectConnectionState connectionState;
+  final SDKConnectParticipantState participants;
+  final SDKConnectMediaState media;
+  final SDKConnectNetworkState network;
+
+  factory SDKConnectRuntimeState.fromCallState(
+    CallState state, {
+    required String localUserId,
+    SDKConnectAudioRoute audioRoute = SDKConnectAudioRoute.earpiece,
+  }) {
+    return SDKConnectRuntimeState(
+      callState: state,
+      connectionState: _mapConnectionState(state),
+      participants: SDKConnectParticipantState(
+        localParticipantId: localUserId,
+        remoteParticipantId: state.session?.peerId,
+        hasRemoteParticipant: state.session != null &&
+            (state.phase == CallPhase.connecting ||
+                state.phase == CallPhase.connected ||
+                state.phase == CallPhase.reconnecting),
+      ),
+      media: SDKConnectMediaState(
+        localAudioEnabled: !state.isMuted,
+        remoteAudioEnabled: state.session != null,
+        localVideoEnabled: state.isVideoEnabled,
+        remoteVideoEnabled: state.session?.callType == CallType.video && state.session != null,
+        audioRoute: audioRoute,
+      ),
+      network: SDKConnectNetworkState(
+        score: state.networkScore,
+        isWeak: state.isAudioPriority,
+        isRecovered: !state.isAudioPriority,
+      ),
+    );
+  }
+
+  SDKConnectRuntimeState copyWith({
+    CallState? callState,
+    SDKConnectConnectionState? connectionState,
+    SDKConnectParticipantState? participants,
+    SDKConnectMediaState? media,
+    SDKConnectNetworkState? network,
+  }) {
+    return SDKConnectRuntimeState(
+      callState: callState ?? this.callState,
+      connectionState: connectionState ?? this.connectionState,
+      participants: participants ?? this.participants,
+      media: media ?? this.media,
+      network: network ?? this.network,
+    );
+  }
+
+  static SDKConnectConnectionState _mapConnectionState(CallState state) {
+    return switch (state.phase) {
+      CallPhase.idle => SDKConnectConnectionState.idle,
+      CallPhase.connecting => SDKConnectConnectionState.connecting,
+      CallPhase.connected => SDKConnectConnectionState.connected,
+      CallPhase.reconnecting => SDKConnectConnectionState.reconnecting,
+      CallPhase.disconnected => SDKConnectConnectionState.disconnected,
+      CallPhase.failed => SDKConnectConnectionState.failed,
+    };
+  }
 }
 
 class SDKConnectCredentials {
@@ -222,6 +395,20 @@ class SDKConnectCallbacks {
     this.onConnection,
     this.onError,
     this.onToken,
+    this.onConnectionStateChanged,
+    this.onReconnecting,
+    this.onReconnected,
+    this.onConnectionLost,
+    this.onParticipantJoined,
+    this.onParticipantLeft,
+    this.onNetworkQualityChanged,
+    this.onLocalAudioChanged,
+    this.onRemoteAudioChanged,
+    this.onLocalVideoChanged,
+    this.onRemoteVideoChanged,
+    this.onAudioRouteChanged,
+    this.onCallWarning,
+    this.onCallRecovered,
   });
 
   final void Function(SDKConnectEvent event)? onEvent;
@@ -229,6 +416,22 @@ class SDKConnectCallbacks {
   final void Function(SDKConnectConnectionEvent event)? onConnection;
   final void Function(SDKConnectErrorEvent event)? onError;
   final void Function(SDKConnectTokenEvent event)? onToken;
+
+  final void Function(SDKConnectConnectionState state, CallState callState)?
+      onConnectionStateChanged;
+  final void Function(CallState callState)? onReconnecting;
+  final void Function(CallState callState)? onReconnected;
+  final void Function(CallState callState, String? reason)? onConnectionLost;
+  final void Function(String participantId)? onParticipantJoined;
+  final void Function(String participantId)? onParticipantLeft;
+  final void Function(SDKConnectNetworkState network)? onNetworkQualityChanged;
+  final void Function(bool enabled)? onLocalAudioChanged;
+  final void Function(bool enabled)? onRemoteAudioChanged;
+  final void Function(bool enabled)? onLocalVideoChanged;
+  final void Function(bool enabled)? onRemoteVideoChanged;
+  final void Function(SDKConnectAudioRoute route)? onAudioRouteChanged;
+  final void Function(String warning, CallState callState)? onCallWarning;
+  final void Function(String reason, CallState callState)? onCallRecovered;
 }
 
 class SDKConnect {
@@ -239,7 +442,12 @@ class SDKConnect {
     SDKConnectCallbacks callbacks = const SDKConnectCallbacks(),
   })  : _callEngine = callEngine,
         _callbacks = callbacks,
-      _ownsEngine = false {
+        _localUserId = localUserId,
+        _runtimeState = SDKConnectRuntimeState.fromCallState(
+          callEngine.state,
+          localUserId: localUserId,
+        ),
+        _ownsEngine = false {
     _voiceSdk = VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
@@ -267,6 +475,7 @@ class SDKConnect {
         callEngine: _callEngine,
       ),
     );
+    _bindRuntimeStateStreams();
   }
 
   factory SDKConnect.create({
@@ -311,7 +520,12 @@ class SDKConnect {
     required SDKConnectCallbacks callbacks,
   })  : _callEngine = callEngine,
         _callbacks = callbacks,
-      _ownsEngine = true {
+        _localUserId = localUserId,
+        _runtimeState = SDKConnectRuntimeState.fromCallState(
+          callEngine.state,
+          localUserId: localUserId,
+        ),
+        _ownsEngine = true {
     _voiceSdk = VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
@@ -339,25 +553,40 @@ class SDKConnect {
         callEngine: _callEngine,
       ),
     );
+    _bindRuntimeStateStreams();
   }
 
   final CallEngine _callEngine;
   final SDKConnectCallbacks _callbacks;
+  final String _localUserId;
   final bool _ownsEngine;
   final StreamController<SDKConnectEvent> _eventsController =
       StreamController<SDKConnectEvent>.broadcast();
+  final StreamController<SDKConnectRuntimeState> _runtimeController =
+      StreamController<SDKConnectRuntimeState>.broadcast();
 
   late final VoiceCallSdk _voiceSdk;
   late final SDKConnectVoiceApi voice;
   late final SDKConnectVideoApi video;
 
-  SDKConnectCallType _nextOutgoingCallType = SDKConnectCallType.voice;
+  StreamSubscription<CallState>? _stateSubscription;
+  StreamSubscription<CallEngineEvent>? _engineEventSubscription;
 
+  SDKConnectRuntimeState _runtimeState;
+  SDKConnectCallType _nextOutgoingCallType = SDKConnectCallType.voice;
+  SDKConnectConnectionState? _lastConnectionState;
+  String? _lastConnectionLostFingerprint;
   bool _isDisposed = false;
 
   CallState get state => _voiceSdk.state;
   Stream<CallState> get states => _voiceSdk.states;
   Stream<SDKConnectEvent> get events => _eventsController.stream;
+  SDKConnectRuntimeState get runtimeState => _runtimeState;
+  Stream<SDKConnectRuntimeState> get runtimeStates => _runtimeController.stream;
+  SDKConnectConnectionState get connectionState => _runtimeState.connectionState;
+  SDKConnectParticipantState get participants => _runtimeState.participants;
+  SDKConnectMediaState get media => _runtimeState.media;
+  SDKConnectNetworkState get network => _runtimeState.network;
 
   Future<void> initialize({String? localUserId}) {
     return _voiceSdk.initialize(localUserId: localUserId);
@@ -420,12 +649,185 @@ class SDKConnect {
 
     _isDisposed = true;
 
+    await _engineEventSubscription?.cancel();
+    await _stateSubscription?.cancel();
     await video._dispose();
     await _voiceSdk.dispose();
     if (_ownsEngine) {
       await _callEngine.dispose();
     }
+    await _runtimeController.close();
     await _eventsController.close();
+  }
+
+  void _bindRuntimeStateStreams() {
+    _stateSubscription = _callEngine.states.listen(_handleStateSnapshotChanged);
+    _engineEventSubscription = _callEngine.events.listen(_handleEngineEvent);
+    _emitRuntimeState();
+  }
+
+  void _handleStateSnapshotChanged(CallState state) {
+    final nextConnection = _mapConnectionState(state);
+    final nextRuntime = _runtimeState.copyWith(
+      callState: state,
+      connectionState: nextConnection,
+      participants: _runtimeState.participants.copyWith(
+        localParticipantId: _localUserId,
+        remoteParticipantId: state.session?.peerId,
+        hasRemoteParticipant: _runtimeState.participants.hasRemoteParticipant &&
+            (state.phase == CallPhase.connected || state.phase == CallPhase.reconnecting),
+      ),
+      media: _runtimeState.media.copyWith(
+        localAudioEnabled: !state.isMuted,
+        localVideoEnabled: state.isVideoEnabled,
+      ),
+      network: _runtimeState.network.copyWith(
+        score: state.networkScore,
+      ),
+    );
+
+    _runtimeState = nextRuntime;
+    _emitRuntimeState();
+
+    if (_lastConnectionState != nextConnection) {
+      _callbacks.onConnectionStateChanged?.call(nextConnection, state);
+      _lastConnectionState = nextConnection;
+    }
+
+    if (_isConnectionLostState(state)) {
+      final callId = state.session?.callId ?? 'no_call';
+      final reason = state.reason ?? 'unknown';
+      final fingerprint = '${state.phase.name}::$callId::$reason';
+      if (_lastConnectionLostFingerprint != fingerprint) {
+        _lastConnectionLostFingerprint = fingerprint;
+        _callbacks.onConnectionLost?.call(state, state.reason);
+      }
+    } else {
+      _lastConnectionLostFingerprint = null;
+    }
+  }
+
+  void _handleEngineEvent(CallEngineEvent event) {
+    switch (event.type) {
+      case CallEngineEventType.participantJoined:
+        final participantId = event.reason ?? _runtimeState.callState.session?.peerId ?? 'remote';
+        _runtimeState = _runtimeState.copyWith(
+          participants: _runtimeState.participants.copyWith(
+            remoteParticipantId: participantId,
+            hasRemoteParticipant: true,
+          ),
+        );
+        _callbacks.onParticipantJoined?.call(participantId);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.participantLeft:
+        final participantId = event.reason ?? _runtimeState.participants.remoteParticipantId ?? 'remote';
+        _runtimeState = _runtimeState.copyWith(
+          participants: _runtimeState.participants.copyWith(
+            hasRemoteParticipant: false,
+          ),
+          media: _runtimeState.media.copyWith(
+            remoteAudioEnabled: false,
+            remoteVideoEnabled: false,
+          ),
+        );
+        _callbacks.onParticipantLeft?.call(participantId);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.networkQualityChanged:
+        _runtimeState = _runtimeState.copyWith(
+          network: _runtimeState.network.copyWith(score: event.networkScore),
+        );
+        _callbacks.onNetworkQualityChanged?.call(_runtimeState.network);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.networkDegraded:
+        _runtimeState = _runtimeState.copyWith(
+          network: _runtimeState.network.copyWith(
+            score: event.networkScore,
+            isWeak: true,
+            isRecovered: false,
+          ),
+        );
+        _callbacks.onCallWarning?.call('network_degraded', _runtimeState.callState);
+        _callbacks.onNetworkQualityChanged?.call(_runtimeState.network);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.networkRecovered:
+        _runtimeState = _runtimeState.copyWith(
+          network: _runtimeState.network.copyWith(
+            score: event.networkScore,
+            isWeak: false,
+            isRecovered: true,
+          ),
+        );
+        _callbacks.onCallRecovered?.call('network_recovered', _runtimeState.callState);
+        _callbacks.onNetworkQualityChanged?.call(_runtimeState.network);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.reconnecting:
+        _callbacks.onReconnecting?.call(_runtimeState.callState);
+        _callbacks.onCallWarning?.call('reconnecting', _runtimeState.callState);
+        return;
+      case CallEngineEventType.recovered:
+        _callbacks.onReconnected?.call(_runtimeState.callState);
+        _callbacks.onCallRecovered?.call('reconnected', _runtimeState.callState);
+        return;
+      case CallEngineEventType.localAudioChanged:
+        final enabled = event.reason != 'local_audio_disabled';
+        _runtimeState = _runtimeState.copyWith(
+          media: _runtimeState.media.copyWith(localAudioEnabled: enabled),
+        );
+        _callbacks.onLocalAudioChanged?.call(enabled);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.remoteAudioChanged:
+        final enabled = event.reason == 'remote_audio_enabled';
+        _runtimeState = _runtimeState.copyWith(
+          media: _runtimeState.media.copyWith(remoteAudioEnabled: enabled),
+        );
+        _callbacks.onRemoteAudioChanged?.call(enabled);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.localVideoChanged:
+        final enabled = event.reason != 'local_video_disabled';
+        _runtimeState = _runtimeState.copyWith(
+          media: _runtimeState.media.copyWith(localVideoEnabled: enabled),
+        );
+        _callbacks.onLocalVideoChanged?.call(enabled);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.remoteVideoChanged:
+        final enabled = event.reason == 'remote_video_enabled';
+        _runtimeState = _runtimeState.copyWith(
+          media: _runtimeState.media.copyWith(remoteVideoEnabled: enabled),
+        );
+        _callbacks.onRemoteVideoChanged?.call(enabled);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.audioRouteChanged:
+        final route = _toPublicAudioRoute(event.audioRoute);
+        _runtimeState = _runtimeState.copyWith(
+          media: _runtimeState.media.copyWith(audioRoute: route),
+        );
+        _callbacks.onAudioRouteChanged?.call(route);
+        _emitRuntimeState();
+        return;
+      case CallEngineEventType.reconnectFailed:
+        return;
+      case CallEngineEventType.lifecycleChanged:
+      case CallEngineEventType.interruptionStarted:
+      case CallEngineEventType.interruptionRecovered:
+      case CallEngineEventType.mediaSessionRestored:
+      case CallEngineEventType.iceRecoveryStarted:
+      case CallEngineEventType.iceRecovered:
+      case CallEngineEventType.audioPriorityEnabled:
+      case CallEngineEventType.audioPriorityDisabled:
+      case CallEngineEventType.tokenRefreshRequested:
+      case CallEngineEventType.tokenRefreshed:
+      case CallEngineEventType.tokenRefreshFailed:
+        return;
+    }
   }
 
   void _handleVoiceUserEvent(VoiceCallUserEvent event) {
@@ -501,6 +903,48 @@ class SDKConnect {
       return session.callType.toPublic();
     }
     return _nextOutgoingCallType;
+  }
+
+  SDKConnectConnectionState _mapConnectionState(CallState state) {
+    return switch (state.phase) {
+      CallPhase.idle => SDKConnectConnectionState.idle,
+      CallPhase.connecting => SDKConnectConnectionState.connecting,
+      CallPhase.connected => SDKConnectConnectionState.connected,
+      CallPhase.reconnecting => SDKConnectConnectionState.reconnecting,
+      CallPhase.disconnected => SDKConnectConnectionState.disconnected,
+      CallPhase.failed => SDKConnectConnectionState.failed,
+    };
+  }
+
+  SDKConnectAudioRoute _toPublicAudioRoute(CallAudioRoute? route) {
+    return switch (route) {
+      CallAudioRoute.earpiece => SDKConnectAudioRoute.earpiece,
+      CallAudioRoute.speaker => SDKConnectAudioRoute.speaker,
+      CallAudioRoute.bluetooth => SDKConnectAudioRoute.bluetooth,
+      CallAudioRoute.wiredHeadset => SDKConnectAudioRoute.wiredHeadset,
+      CallAudioRoute.unknown => SDKConnectAudioRoute.unknown,
+      null => SDKConnectAudioRoute.unknown,
+    };
+  }
+
+  bool _isConnectionLostState(CallState state) {
+    if (state.phase != CallPhase.disconnected && state.phase != CallPhase.failed) {
+      return false;
+    }
+
+    const expectedEndReasons = <String>{
+      'ended_by_user',
+      'sdk_disposed',
+      'end_cleanup',
+    };
+
+    return !expectedEndReasons.contains(state.reason);
+  }
+
+  void _emitRuntimeState() {
+    if (!_runtimeController.isClosed) {
+      _runtimeController.add(_runtimeState);
+    }
   }
 
   void _emitEvent(SDKConnectEvent event) {

@@ -39,10 +39,58 @@ class LiveKitMediaEngine implements MediaEngine {
     }
 
     _roomListener ??= _room.createListener()
-      ..on<lk.ParticipantConnectedEvent>((_) {
+      ..on<lk.ParticipantConnectedEvent>((event) {
+        _emitEvent(
+          MediaEngineEvent(
+            type: MediaEngineEventType.participantJoined,
+            participantId: event.participant.sid,
+            reason: 'participant_joined',
+          ),
+        );
+        _emitEvent(
+          MediaEngineEvent(
+            type: MediaEngineEventType.remoteAudioChanged,
+            participantId: event.participant.sid,
+            enabled: true,
+            reason: 'remote_audio_available',
+          ),
+        );
+        _emitEvent(
+          MediaEngineEvent(
+            type: MediaEngineEventType.remoteVideoChanged,
+            participantId: event.participant.sid,
+            enabled: true,
+            reason: 'remote_video_available',
+          ),
+        );
         if (_room.remoteParticipants.length > 1) {
           unawaited(_disconnectOnP2PViolation());
         }
+      })
+      ..on<lk.ParticipantDisconnectedEvent>((event) {
+        _emitEvent(
+          MediaEngineEvent(
+            type: MediaEngineEventType.participantLeft,
+            participantId: event.participant.sid,
+            reason: 'participant_left',
+          ),
+        );
+        _emitEvent(
+          MediaEngineEvent(
+            type: MediaEngineEventType.remoteAudioChanged,
+            participantId: event.participant.sid,
+            enabled: false,
+            reason: 'remote_audio_unavailable',
+          ),
+        );
+        _emitEvent(
+          MediaEngineEvent(
+            type: MediaEngineEventType.remoteVideoChanged,
+            participantId: event.participant.sid,
+            enabled: false,
+            reason: 'remote_video_unavailable',
+          ),
+        );
       })
       ..on<lk.RoomDisconnectedEvent>((event) {
         _emitEvent(
@@ -87,6 +135,13 @@ class LiveKitMediaEngine implements MediaEngine {
 
     await _room.localParticipant?.setMicrophoneEnabled(!muted);
     _isMuted = muted;
+    _emitEvent(
+      MediaEngineEvent(
+        type: MediaEngineEventType.localAudioChanged,
+        enabled: !muted,
+        reason: muted ? 'local_audio_disabled' : 'local_audio_enabled',
+      ),
+    );
   }
 
   @override
@@ -114,6 +169,13 @@ class LiveKitMediaEngine implements MediaEngine {
 
     await _room.localParticipant?.setCameraEnabled(enabled);
     _isVideoEnabled = enabled;
+    _emitEvent(
+      MediaEngineEvent(
+        type: MediaEngineEventType.localVideoChanged,
+        enabled: enabled,
+        reason: enabled ? 'local_video_enabled' : 'local_video_disabled',
+      ),
+    );
   }
 
   @override
