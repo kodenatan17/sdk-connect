@@ -228,19 +228,51 @@ final sdk = SDKConnect.create(
 
 ## Example Usage
 
-The sample app is available in the `example/` folder with this structure:
+The sample app is available in the `example/` folder with a feature-based structure:
 
 ```text
 example/
   main.dart
-  call_screen/
-    incoming_call_screen.dart
-  config/
-    config_sdk.dart
   video/
     video_call_screen.dart
   voice/
     voice_call_screen.dart
+```
+
+What the example demonstrates:
+
+- `main.dart` handles bootstrap and navigation only.
+- SDK initialization, token provider wiring, and callId generation are centralized and reused.
+- `voice/voice_call_screen.dart` starts a voice call through `SDKConnect` and renders `RemoteVoiceCallWidget`.
+- `video/video_call_screen.dart` starts a video call through `SDKConnect` and renders `RemoteVideoCallWidget`.
+- Consumer code stays on SDKConnect APIs/widgets only (no direct LiveKit usage).
+- P2P contract is preserved (max 2 participants).
+
+Small navigation snippet (main -> feature screens):
+
+```dart
+final sdk = SDKConnect.create(
+  localUserId: 'user-a',
+  tokenProvider: yourTokenProvider,
+);
+
+Navigator.of(context).push(
+  MaterialPageRoute<void>(
+    builder: (_) => VoiceCallScreen(
+      sdk: sdk,
+      createCallId: createCallId,
+    ),
+  ),
+);
+
+Navigator.of(context).push(
+  MaterialPageRoute<void>(
+    builder: (_) => VideoCallScreen(
+      sdk: sdk,
+      createCallId: createCallId,
+    ),
+  ),
+);
 ```
 
 ### How to Run

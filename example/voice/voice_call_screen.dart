@@ -1,85 +1,96 @@
 import 'package:flutter/material.dart';
 import 'package:sdk_connect/sdk_connect.dart';
 
-class VoiceCallScreen extends StatelessWidget {
+class VoiceCallScreen extends StatefulWidget {
   const VoiceCallScreen({
     super.key,
-    required this.state,
-    required this.onEnd,
-    required this.onToggleMute,
-    required this.onToggleSpeaker,
+    required this.sdk,
+    required this.createCallId,
+    this.peerId = 'peer-b',
   });
 
-  final CallState state;
-  final Future<void> Function() onEnd;
-  final Future<void> Function() onToggleMute;
-  final Future<void> Function() onToggleSpeaker;
+  final SDKConnect sdk;
+  final String Function() createCallId;
+  final String peerId;
+
+  @override
+  State<VoiceCallScreen> createState() => _VoiceCallScreenState();
+}
+
+class _VoiceCallScreenState extends State<VoiceCallScreen> {
+  Future<void> _startVoiceCall() async {
+    try {
+      await widget.sdk.startCall(
+        callId: widget.createCallId(),
+        peerId: widget.peerId,
+        callType: SDKConnectCallType.voice,
+      );
+    } on CallLifecycleException {
+      _showMessage('P2P only: max 2 participants per room.');
+    } on StateError {
+      _showMessage('Missing SDK runtime configuration.');
+    } catch (_) {
+      _showMessage('Failed to start voice call.');
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isConnected = state.phase == CallPhase.connected;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Voice Call')),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Icon(
-                  isConnected ? Icons.call : Icons.phone_forwarded,
-                  size: 56,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  isConnected
-                      ? 'Connected to ${state.session?.peerId ?? 'Unknown'}'
-                      : 'Calling ${state.session?.peerId ?? 'Unknown'}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Muted: ${state.isMuted ? 'on' : 'off'}\nSpeaker: ${state.isSpeakerOn ? 'on' : 'off'}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  alignment: WrapAlignment.center,
-                  children: <Widget>[
-                    OutlinedButton.icon(
-                      onPressed: isConnected ? () => onToggleMute() : null,
-                      icon: Icon(state.isMuted ? Icons.mic_off : Icons.mic),
-                      label: Text(state.isMuted ? 'Unmute' : 'Mute'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: isConnected ? () => onToggleSpeaker() : null,
-                      icon: Icon(
-                        state.isSpeakerOn ? Icons.volume_up : Icons.hearing,
+    return StreamBuilder<SDKConnectRuntimeState>(
+      stream: widget.sdk.runtimeStates,
+      initialData: widget.sdk.runtimeState,
+      builder: (context, snapshot) {
+        final runtime = snapshot.data ?? widget.sdk.runtimeState;
+        final state = runtime.connectionState;
+        final canStart = state == SDKConnectConnectionState.idle ||
+            state == SDKConnectConnectionState.disconnected ||
+            state == SDKConnectConnectionState.failed;
+
+        if (canStart) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Voice Feature')),
+            body: SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(Icons.call, size: 52),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Voice call with SDKConnect widget',
+                        style: Theme.of(context).textTheme.titleLarge,
+                        textAlign: TextAlign.center,
                       ),
-                      label: Text(
-                        state.isSpeakerOn ? 'Speaker Off' : 'Speaker On',
+                      const SizedBox(height: 8),
+                      Text(
+                        'Peer: ${widget.peerId}',
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                    ),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.red,
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed: _startVoiceCall,
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('Start Voice Call'),
                       ),
-                      onPressed: () => onEnd(),
-                      icon: const Icon(Icons.call_end),
-                      label: const Text('End Call'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
-      ),
+          );
+        }
+
+        return RemoteVoiceCallWidget(sdk: widget.sdk, title: 'Voice Feature');
+      },
     );
   }
 }

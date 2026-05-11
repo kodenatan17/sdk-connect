@@ -1,19 +1,13 @@
 {
-  "feature": "SDKConnect connection-loss deduplication and widget lifecycle purity refactor",
+  "feature": "README updated with small navigation snippet for feature-based example flow",
   "agents": [
     "mbg-memory-system",
-    "joko-builder",
-    "senior-reviewer",
-    "pakpol-security",
-    "kang-commit"
+    "solo-orchestrator"
   ],
   "skills": [
-    "sdkconnect-consumer-skill",
-    "call-engine-skill",
-    "realtime-lifecycle-safety-skill",
-    "realtime-flow-review-skill",
-    "p2p-session-security-skill"
+    "sdk-architecture-skill",
+    "sdkconnect-consumer-skill"
   ],
   "outcome": "success",
-  "round": 12
+  "round": 14
 }

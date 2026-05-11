@@ -1,95 +1,96 @@
 import 'package:flutter/material.dart';
 import 'package:sdk_connect/sdk_connect.dart';
 
-class VideoCallScreen extends StatelessWidget {
+class VideoCallScreen extends StatefulWidget {
   const VideoCallScreen({
     super.key,
-    required this.state,
-    required this.onEnd,
-    required this.onToggleMute,
-    required this.onToggleSpeaker,
-    required this.onToggleCamera,
+    required this.sdk,
+    required this.createCallId,
+    this.peerId = 'peer-b',
   });
 
-  final CallState state;
-  final Future<void> Function() onEnd;
-  final Future<void> Function() onToggleMute;
-  final Future<void> Function() onToggleSpeaker;
-  final Future<void> Function() onToggleCamera;
+  final SDKConnect sdk;
+  final String Function() createCallId;
+  final String peerId;
+
+  @override
+  State<VideoCallScreen> createState() => _VideoCallScreenState();
+}
+
+class _VideoCallScreenState extends State<VideoCallScreen> {
+  Future<void> _startVideoCall() async {
+    try {
+      await widget.sdk.startCall(
+        callId: widget.createCallId(),
+        peerId: widget.peerId,
+        callType: SDKConnectCallType.video,
+      );
+    } on CallLifecycleException {
+      _showMessage('P2P only: max 2 participants per room.');
+    } on StateError {
+      _showMessage('Missing SDK runtime configuration.');
+    } catch (_) {
+      _showMessage('Failed to start video call.');
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isConnected = state.phase == CallPhase.connected;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Video Call')),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Icon(isConnected ? Icons.videocam : Icons.video_call, size: 56),
-                const SizedBox(height: 16),
-                Text(
-                  isConnected
-                      ? 'Video connected to ${state.session?.peerId ?? 'Unknown'}'
-                      : 'Starting video with ${state.session?.peerId ?? 'Unknown'}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall,
+    return StreamBuilder<SDKConnectRuntimeState>(
+      stream: widget.sdk.runtimeStates,
+      initialData: widget.sdk.runtimeState,
+      builder: (context, snapshot) {
+        final runtime = snapshot.data ?? widget.sdk.runtimeState;
+        final state = runtime.connectionState;
+        final canStart = state == SDKConnectConnectionState.idle ||
+            state == SDKConnectConnectionState.disconnected ||
+            state == SDKConnectConnectionState.failed;
+
+        if (canStart) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Video Feature')),
+            body: SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(Icons.videocam, size: 52),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Video call with SDKConnect widget',
+                        style: Theme.of(context).textTheme.titleLarge,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Peer: ${widget.peerId}',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed: _startVideoCall,
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('Start Video Call'),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Muted: ${state.isMuted ? 'on' : 'off'}\nSpeaker: ${state.isSpeakerOn ? 'on' : 'off'}\nCamera: ${state.isVideoEnabled ? 'on' : 'off'}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  alignment: WrapAlignment.center,
-                  children: <Widget>[
-                    OutlinedButton.icon(
-                      onPressed: isConnected ? () => onToggleMute() : null,
-                      icon: Icon(state.isMuted ? Icons.mic_off : Icons.mic),
-                      label: Text(state.isMuted ? 'Unmute' : 'Mute'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: isConnected ? () => onToggleSpeaker() : null,
-                      icon: Icon(
-                        state.isSpeakerOn ? Icons.volume_up : Icons.hearing,
-                      ),
-                      label: Text(
-                        state.isSpeakerOn ? 'Speaker Off' : 'Speaker On',
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: isConnected ? () => onToggleCamera() : null,
-                      icon: Icon(
-                        state.isVideoEnabled
-                            ? Icons.videocam_off
-                            : Icons.videocam,
-                      ),
-                      label: Text(
-                        state.isVideoEnabled ? 'Camera Off' : 'Camera On',
-                      ),
-                    ),
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.red,
-                      ),
-                      onPressed: () => onEnd(),
-                      icon: const Icon(Icons.call_end),
-                      label: const Text('End Call'),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-      ),
+          );
+        }
+
+        return RemoteVideoCallWidget(sdk: widget.sdk, title: 'Video Feature');
+      },
     );
   }
 }

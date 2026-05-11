@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 import 'package:sdk_connect/sdk_connect.dart';
 
-import 'config/config_sdk.dart';
+import 'video/video_call_screen.dart';
+import 'voice/voice_call_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,26 +20,21 @@ class ExampleApp extends StatelessWidget {
     return MaterialApp(
       title: 'SDK Connect Example',
       theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
-      home: const ExampleHomePage(),
+      home: const _SdkBootstrapScreen(),
     );
   }
 }
 
-class ExampleHomePage extends StatefulWidget {
-  const ExampleHomePage({super.key});
+class _SdkBootstrapScreen extends StatefulWidget {
+  const _SdkBootstrapScreen();
 
   @override
-  State<ExampleHomePage> createState() => _ExampleHomePageState();
+  State<_SdkBootstrapScreen> createState() => _SdkBootstrapScreenState();
 }
 
-class _ExampleHomePageState extends State<ExampleHomePage> {
-  final ConfigSdk _config = const ConfigSdk();
-
+class _SdkBootstrapScreenState extends State<_SdkBootstrapScreen> {
   SDKConnect? _sdk;
-  Object? _error;
-
-  final List<String> _timeline = <String>[];
-  SDKConnectCallType _preferredWidgetMode = SDKConnectCallType.voice;
+  Object? _bootstrapError;
 
   @override
   void initState() {
@@ -50,51 +45,8 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
   Future<void> _initializeSdk() async {
     try {
       final sdk = SDKConnect.create(
-        localUserId: ConfigSdk.localUserId,
-        tokenProvider: _config.createTokenProvider(),
-        callbacks: SDKConnectCallbacks(
-          onConnectionStateChanged: (state, callState) {
-            _addTimeline('connection: ${state.name} (${callState.reason ?? 'ok'})');
-          },
-          onReconnecting: (_) {
-            _addTimeline('reconnecting...');
-            _showMessage('Trying to recover connection...');
-          },
-          onReconnected: (_) {
-            _addTimeline('reconnected');
-            _showMessage('Connection recovered');
-          },
-          onConnectionLost: (state, reason) {
-            _addTimeline('connection_lost: ${reason ?? 'unknown'}');
-            _showMessage('Connection lost: ${reason ?? 'unknown'}');
-            if (state.reason == 'remote_participant_left') {
-              _showMessage('Remote participant left the call.');
-            }
-          },
-          onParticipantJoined: (participantId) {
-            _addTimeline('participant_joined: $participantId');
-          },
-          onParticipantLeft: (participantId) {
-            _addTimeline('participant_left: $participantId');
-            _showMessage('Participant left: $participantId');
-          },
-          onCallWarning: (warning, _) {
-            _addTimeline('warning: $warning');
-          },
-          onCallRecovered: (reason, _) {
-            _addTimeline('recovered: $reason');
-          },
-          onNetworkQualityChanged: (network) {
-            _addTimeline('network: score=${network.score ?? -1}, weak=${network.isWeak}');
-          },
-          onAudioRouteChanged: (route) {
-            _addTimeline('audio_route: ${route.name}');
-          },
-          onError: (event) {
-            _addTimeline('error: ${event.operation}');
-            _showMessage('SDK error on ${event.operation}.');
-          },
-        ),
+        localUserId: _ExampleConfig.localUserId,
+        tokenProvider: _createTokenProvider(),
       );
 
       if (!mounted) {
@@ -110,7 +62,7 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
         return;
       }
       setState(() {
-        _error = error;
+        _bootstrapError = error;
       });
     }
   }
@@ -124,41 +76,14 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
     super.dispose();
   }
 
-  Future<void> _startOutgoing(SDKConnectCallType callType) async {
-    final sdk = _sdk;
-    if (sdk == null) {
-      return;
-    }
-
-    try {
-      await sdk.startCall(
-        callId: _randomCallId(),
-        peerId: 'peer-b',
-        callType: callType,
-      );
-    } on P2PLimitExceededException {
-      _showMessage('P2P only: max 2 participants per room.');
-    } on StateError {
-      _showMessage('Missing SDK runtime configuration.');
-    } catch (_) {
-      _showMessage('Failed to start outgoing call.');
-    }
+  SDKConnectTokenProvider _createTokenProvider() {
+    return (_) async => SDKConnectCredentials(
+      roomUrl: _ExampleConfig.requireValidRoomUrl(),
+      token: _ExampleConfig.requireValidToken(),
+    );
   }
 
-  Future<void> _endCall() async {
-    final sdk = _sdk;
-    if (sdk == null) {
-      return;
-    }
-
-    try {
-      await sdk.endCall(reason: 'ended_by_user');
-    } catch (_) {
-      _showMessage('Failed to end call.');
-    }
-  }
-
-  String _randomCallId() {
+  String _createCallId() {
     final random = Random.secure();
     final bytes = List<int>.generate(16, (_) => random.nextInt(256));
     final hex = bytes
@@ -167,34 +92,15 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
     return 'call_$hex';
   }
 
-  void _showMessage(String message) {
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  void _addTimeline(String message) {
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _timeline.insert(0, '${DateTime.now().toIso8601String()}  $message');
-      if (_timeline.length > 25) {
-        _timeline.removeRange(25, _timeline.length);
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (_error != null) {
+    if (_bootstrapError != null) {
       return Scaffold(
         appBar: AppBar(title: const Text('SDK Connect Example')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text('Initialization failed: $_error'),
+            child: Text('Initialization failed: $_bootstrapError'),
           ),
         ),
       );
@@ -208,197 +114,104 @@ class _ExampleHomePageState extends State<ExampleHomePage> {
       );
     }
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('SDK Connect Example'),
-          bottom: const TabBar(
-            tabs: <Widget>[
-              Tab(text: 'SDK Only'),
-              Tab(text: 'Plug-and-Play Widget'),
+    return _ExampleHomeScreen(
+      sdk: sdk,
+      createCallId: _createCallId,
+    );
+  }
+}
+
+class _ExampleHomeScreen extends StatelessWidget {
+  const _ExampleHomeScreen({
+    required this.sdk,
+    required this.createCallId,
+  });
+
+  final SDKConnect sdk;
+  final String Function() createCallId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('SDK Connect Example')),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(
+                'Plug-and-Play SDKConnect demo',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Choose a feature screen. The SDK instance is initialized once and reused.',
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => VoiceCallScreen(
+                        sdk: sdk,
+                        createCallId: createCallId,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.call),
+                label: const Text('Voice Feature'),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => VideoCallScreen(
+                        sdk: sdk,
+                        createCallId: createCallId,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.videocam),
+                label: const Text('Video Feature'),
+              ),
             ],
           ),
-        ),
-        body: TabBarView(
-          children: <Widget>[
-            _SdkOnlyDemo(
-              sdk: sdk,
-              timeline: _timeline,
-              onStartVoice: () => _startOutgoing(SDKConnectCallType.voice),
-              onStartVideo: () => _startOutgoing(SDKConnectCallType.video),
-              onEnd: _endCall,
-            ),
-            _WidgetDemo(
-              sdk: sdk,
-              preferredMode: _preferredWidgetMode,
-              onModeChanged: (mode) {
-                setState(() {
-                  _preferredWidgetMode = mode;
-                });
-              },
-              onStart: () => _startOutgoing(_preferredWidgetMode),
-            ),
-          ],
         ),
       ),
     );
   }
 }
 
-class _SdkOnlyDemo extends StatelessWidget {
-  const _SdkOnlyDemo({
-    required this.sdk,
-    required this.timeline,
-    required this.onStartVoice,
-    required this.onStartVideo,
-    required this.onEnd,
-  });
+class _ExampleConfig {
+  static const String localUserId = 'demo-user-a';
 
-  final SDKConnect sdk;
-  final List<String> timeline;
-  final Future<void> Function() onStartVoice;
-  final Future<void> Function() onStartVideo;
-  final Future<void> Function() onEnd;
+  static const String _roomUrl = String.fromEnvironment(
+    'SDK_CONNECT_ROOM_URL',
+    defaultValue: '',
+  );
 
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<SDKConnectRuntimeState>(
-      stream: sdk.runtimeStates,
-      initialData: sdk.runtimeState,
-      builder: (context, snapshot) {
-        final runtime = snapshot.data ?? sdk.runtimeState;
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                'Connection: ${runtime.connectionState.name}',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text('Participant: ${runtime.participants.remoteParticipantId ?? '-'}'),
-              Text('Audio route: ${runtime.media.audioRoute.name}'),
-              Text('Weak network: ${runtime.network.isWeak}'),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: <Widget>[
-                  FilledButton(
-                    onPressed: onStartVoice,
-                    child: const Text('Start Voice'),
-                  ),
-                  FilledButton(
-                    onPressed: onStartVideo,
-                    child: const Text('Start Video'),
-                  ),
-                  OutlinedButton(
-                    onPressed: sdk.toggleMute,
-                    child: Text(runtime.media.localAudioEnabled ? 'Mute' : 'Unmute'),
-                  ),
-                  OutlinedButton(
-                    onPressed: sdk.toggleSpeaker,
-                    child: const Text('Toggle Speaker'),
-                  ),
-                  OutlinedButton(
-                    onPressed: sdk.video.toggleCamera,
-                    child: Text(runtime.media.localVideoEnabled ? 'Camera Off' : 'Camera On'),
-                  ),
-                  FilledButton.tonal(
-                    onPressed: onEnd,
-                    child: const Text('End Call'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Text('Lifecycle/Recovery Timeline', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: timeline.length,
-                  itemBuilder: (context, index) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Text(timeline[index]),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+  static const String _token = String.fromEnvironment(
+    'SDK_CONNECT_ACCESS_TOKEN',
+    defaultValue: '',
+  );
+
+  static String requireValidRoomUrl() {
+    final value = _roomUrl.trim();
+    if (value.isEmpty) {
+      throw StateError('Missing SDK_CONNECT_ROOM_URL');
+    }
+    return value;
   }
-}
 
-class _WidgetDemo extends StatelessWidget {
-  const _WidgetDemo({
-    required this.sdk,
-    required this.preferredMode,
-    required this.onModeChanged,
-    required this.onStart,
-  });
-
-  final SDKConnect sdk;
-  final SDKConnectCallType preferredMode;
-  final ValueChanged<SDKConnectCallType> onModeChanged;
-  final Future<void> Function() onStart;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<SDKConnectRuntimeState>(
-      stream: sdk.runtimeStates,
-      initialData: sdk.runtimeState,
-      builder: (context, snapshot) {
-        final runtime = snapshot.data ?? sdk.runtimeState;
-
-        if (runtime.connectionState == SDKConnectConnectionState.idle) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  SegmentedButton<SDKConnectCallType>(
-                    segments: const <ButtonSegment<SDKConnectCallType>>[
-                      ButtonSegment<SDKConnectCallType>(
-                        value: SDKConnectCallType.voice,
-                        icon: Icon(Icons.call),
-                        label: Text('Voice Widget'),
-                      ),
-                      ButtonSegment<SDKConnectCallType>(
-                        value: SDKConnectCallType.video,
-                        icon: Icon(Icons.videocam),
-                        label: Text('Video Widget'),
-                      ),
-                    ],
-                    selected: <SDKConnectCallType>{preferredMode},
-                    onSelectionChanged: (selection) {
-                      onModeChanged(selection.first);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: onStart,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start Plug-and-Play Call'),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        final isVideo = runtime.callState.session?.callType == CallType.video;
-        if (isVideo) {
-          return RemoteVideoCallWidget(sdk: sdk);
-        }
-
-        return RemoteVoiceCallWidget(sdk: sdk);
-      },
-    );
+  static String requireValidToken() {
+    final value = _token.trim();
+    if (value.isEmpty) {
+      throw StateError('Missing SDK_CONNECT_ACCESS_TOKEN');
+    }
+    return value;
   }
 }

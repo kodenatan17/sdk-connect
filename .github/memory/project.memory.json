@@ -1,5 +1,13 @@
 {
-  "ARCH": ["ARCH_BLOC_V1", "ARCH_CALL_ENGINE_LIFECYCLE_V1"],
+  "ARCH": [
+    "ARCH_BLOC_V1",
+    "ARCH_CALL_ENGINE_LIFECYCLE_V1",
+    "ARCH_EXAMPLE_CONSUMER_FACADE_ONLY_V1",
+    "ARCH_EXAMPLE_BOOTSTRAP_NAV_ONLY_V1",
+    "ARCH_EXAMPLE_REMOTE_WIDGET_RENDERING_V1",
+    "ARCH_EXAMPLE_SHARED_BOOTSTRAP_INIT_V1",
+    "ARCH_P2P_LIFECYCLE_EXCEPTION_GUARD_V1"
+  ],
   "SEC": ["SEC_AUTH_JWT_V1", "SEC_SIGNALING_MQTT_V1"],
   "RTC": ["RTC_WEBRTC_WRAPPED_V1"],
   "RULE": [
@@ -257,6 +265,43 @@
       "Voice and video call screens live in example/voice/voice_call_screen.dart and example/video/video_call_screen.dart"
     ]
   },
+  "ARCH_EXAMPLE_CONSUMER_FACADE_ONLY_V1": {
+    "description": "Example consumers integrate through SDKConnect facade/widgets only and avoid direct LiveKit coupling",
+    "rules": [
+      "Example code must consume SDKConnect facade APIs and SDK-provided widgets",
+      "Example layers must not import or call LiveKit directly"
+    ]
+  },
+  "ARCH_EXAMPLE_BOOTSTRAP_NAV_ONLY_V1": {
+    "description": "example/main.dart is limited to bootstrap wiring and navigation composition",
+    "rules": [
+      "Feature behavior/state logic lives in feature screens (voice/video)",
+      "main.dart should not own call lifecycle behavior beyond startup/navigation"
+    ]
+  },
+  "ARCH_EXAMPLE_REMOTE_WIDGET_RENDERING_V1": {
+    "description": "Example voice/video feature screens use SDK remote widgets for plug-and-play rendering",
+    "rules": [
+      "Voice feature uses RemoteVoiceCallWidget for remote rendering",
+      "Video feature uses RemoteVideoCallWidget for remote rendering"
+    ]
+  },
+  "ARCH_EXAMPLE_SHARED_BOOTSTRAP_INIT_V1": {
+    "description": "SDK init, token provider, and callId generation are centralized in bootstrap to prevent duplicated setup",
+    "rules": [
+      "Shared SDK initialization lives in bootstrap layer",
+      "Token provider wiring is shared and reused across feature screens",
+      "CallId generation is centralized and reused instead of duplicated per screen"
+    ]
+  },
+  "ARCH_P2P_LIFECYCLE_EXCEPTION_GUARD_V1": {
+    "description": "P2P max-2 participant contract is preserved with explicit lifecycle exception handling on over-capacity attempts",
+    "rules": [
+      "P2P flow remains capped at 2 participants",
+      "Attempts to exceed 2 participants must fail through lifecycle exception handling",
+      "Over-capacity attempts must not silently proceed into media/session state"
+    ]
+  },
   "ARCH_MEDIA_SESSION_ONLY_OWNERSHIP_V1": {
     "description": "SDKConnect architecture enforces media/session ownership in SDK facade and CallEngine while removing signaling ownership from SDK and engine layers",
     "rules": [
@@ -338,6 +383,15 @@
       "Disconnected/ended terminal callbacks must emit once per lifecycle termination",
       "Reconnect-failed and participant-left paths must not duplicate terminal callbacks",
       "Lifecycle terminal emission uses fingerprint/guard protection"
+    ]
+  },
+  "DOCS_README_EXAMPLE_USAGE_V1": {
+    "description": "README Example Usage includes a small navigation snippet showing feature-based example structure with shared SDKConnect instance",
+    "rules": [
+      "README demonstrates main→voice/video navigation pattern",
+      "Code snippet shows shared SDKConnect instance reuse across feature screens",
+      "createCallId pattern is documented for consumer usage",
+      "Docs remain aligned with SDK-only consumer usage (no direct LiveKit imports)"
     ]
   }
 }
