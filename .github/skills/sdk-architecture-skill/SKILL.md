@@ -10,6 +10,7 @@ Validate SDKConnect abstraction boundaries and transport-independent architectur
 
 - SDK abstraction validation
 - transport-agnostic enforcement
+- architecture-agnostic SDK enforcement
 - unified SDK event validation
 - infrastructure isolation
 
@@ -21,6 +22,8 @@ Validate SDKConnect abstraction boundaries and transport-independent architectur
 - SDK MUST hide LiveKit implementation
 - signaling MUST remain external to SDK lifecycle
 - SDK lifecycle MUST represent RTC/media only
+- SDK MUST remain framework/state-management agnostic
+- SDK MUST expose streams/events/callbacks only
 
 ---
 
@@ -46,9 +49,11 @@ Infrastructure
 - signaling ownership inside SDK lifecycle
 - duplicated SDK wrappers
 - transport-specific SDK coupling
+- Bloc/Riverpod/Provider dependency inside SDK
+- app-specific architecture coupling
 
 ---
 
 ## Goal
 
-Clean and reusable RTC/media SDK architecture.
+Clean, reusable, and architecture-agnostic RTC/media SDK architecture.
