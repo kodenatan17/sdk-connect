@@ -398,9 +398,36 @@
   "ARCH_WIDGET_PHASE_MAPPING_V1": {
     "description": "SDKConnectWidgetPhase maps RTC connection states to 3 consumer-facing widget phases",
     "rules": [
-      "Phases: calling (connecting), connected (connected|reconnecting), ended (disconnected|failed)",
+      "Phases: calling (connecting), connected (connected|reconnecting), ended (idle|disconnected|failed) for UI aggregation",
       "Static method SDKConnectWidgetPhase.from(SDKConnectConnectionState) is the single source of truth for mapping",
       "Defined in sdk_connect_api.dart"
+    ]
+  },
+
+  "RULE_PUBLIC_API_NO_INVITATION_LIFECYCLE_OWNERSHIP_V1": {
+    "description": "SDK/public APIs do not own invitation accept/reject lifecycle orchestration",
+    "rules": [
+      "Invitation accept/reject lifecycle remains external to SDKConnect runtime lifecycle ownership",
+      "SDKConnect public APIs consume caller-provided accept/reject outcomes rather than orchestrating invitation state machines",
+      "CallEngine and SDK facade remain focused on media/session lifecycle once consumer signaling decisions are made"
+    ]
+  },
+
+  "ARCH_EXAMPLE_SIGNALING_STATE_MINIMAL_V1": {
+    "description": "Example signaling state remains minimal and external to SDK lifecycle",
+    "rules": [
+      "Example signaling state model is limited to idle, dialing, rejected",
+      "Example signaling state remains outside SDKConnect and CallEngine lifecycle ownership",
+      "Example signaling state should not duplicate SDK lifecycle phases"
+    ]
+  },
+
+  "DOCS_README_TOKEN_CONFIDENTIALITY_GUARDS_V1": {
+    "description": "README must preserve token confidentiality and safe auth guidance",
+    "rules": [
+      "README examples require short-lived access tokens",
+      "README guidance explicitly forbids token logging",
+      "Documentation must avoid exposing raw token values in code snippets or logs"
     ]
   },
 

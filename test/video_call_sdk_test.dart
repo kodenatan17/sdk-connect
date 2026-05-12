@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sdk_connect/core/enums/call_phase.dart';
 import 'package:sdk_connect/core/enums/call_type.dart';
-import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
 import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/infrastructure/media/media_engine.dart';
@@ -52,21 +51,6 @@ void main() {
     await engine.dispose();
   });
 
-  test('VideoCallSdk no longer owns invitation accept/reject', () async {
-    final sdk = VideoCallSdk(
-      voiceSdk: VoiceCallSdk(
-        localUserId: 'user-a',
-        callEngine: CallEngine(mediaEngine: _FakeMediaEngine(), logger: _InMemoryLogger()),
-        tokenProvider: (_) async => validCredentials,
-      ),
-      callEngine: CallEngine(mediaEngine: _FakeMediaEngine(), logger: _InMemoryLogger()),
-    );
-
-    await expectLater(() => sdk.acceptCall(), throwsA(isA<CallLifecycleException>()));
-    await expectLater(() => sdk.rejectCall(), throwsA(isA<CallLifecycleException>()));
-
-    await sdk.dispose();
-  });
 }
 
 class _FakeMediaEngine implements MediaEngine {

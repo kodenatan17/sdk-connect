@@ -3,17 +3,17 @@ import 'package:sdk_connect/sdk_connect.dart';
 
 /// Signaling states managed externally to SDKConnect.
 ///
-/// These represent the pre-media lifecycle (outgoing dialing, incoming ringing,
-/// or a rejected signal). SDKConnect connection states take over once media
+/// These represent pre-media business signaling before SDK media starts.
+/// SDKConnect connection states take over once media
 /// negotiation begins.
-enum _SignalingState { idle, dialing, ringing, rejected }
+enum _SignalingState { idle, dialing, rejected }
 
 /// Video call screen for the example app.
 ///
-/// - Pre-media phase: displays signaling state (dialing / ringing / rejected).
+/// - Pre-media phase: displays signaling state (dialing / rejected).
 /// - Active phase: delegates rendering to [RemoteVideoCallWidget].
-/// - Widget callbacks (onCallStateChanged, onReconnect, onDisconnected,
-///   onEnded) are wired here; no lifecycle logic leaks into the widget.
+/// - Widget callbacks (onReconnect, onDisconnected, onEnded) are wired here;
+///   no lifecycle logic leaks into the widget.
 class VideoCallScreen extends StatefulWidget {
   const VideoCallScreen({
     super.key,
@@ -32,8 +32,6 @@ class VideoCallScreen extends StatefulWidget {
 
 class _VideoCallScreenState extends State<VideoCallScreen> {
   _SignalingState _signalingState = _SignalingState.idle;
-
-  // ── Signaling ────────────────────────────────────────────────────────────
 
   Future<void> _dial() async {
     setState(() => _signalingState = _SignalingState.dialing);
@@ -58,15 +56,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     }
   }
 
-  // ── Widget callbacks (SDKConnect state only) ─────────────────────────────
-
-  void _onCallStateChanged(SDKConnectWidgetPhase phase) {
-    if (!mounted) return;
-    if (phase == SDKConnectWidgetPhase.ended) {
-      setState(() => _signalingState = _SignalingState.idle);
-    }
-  }
-
   void _onReconnect() {
     _showSnackBar('Reconnecting…');
   }
@@ -75,21 +64,17 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     _showSnackBar(reason ?? 'Disconnected');
   }
 
-  void _onEnded(String? reason) {
+  void _onEnded(String? _) {
     if (!mounted) return;
     setState(() => _signalingState = _SignalingState.idle);
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
-
-  // ── Build ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -97,8 +82,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
       stream: widget.sdk.runtimeStates,
       initialData: widget.sdk.runtimeState,
       builder: (context, snapshot) {
-        final conn =
-            (snapshot.data ?? widget.sdk.runtimeState).connectionState;
+        final conn = (snapshot.data ?? widget.sdk.runtimeState).connectionState;
         final isActive =
             conn == SDKConnectConnectionState.connecting ||
             conn == SDKConnectConnectionState.connected ||
@@ -109,7 +93,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
             sdk: widget.sdk,
             title: 'Video Call',
             callbacks: SDKConnectWidgetCallbacks(
-              onCallStateChanged: _onCallStateChanged,
               onReconnect: _onReconnect,
               onDisconnected: _onDisconnected,
               onEnded: _onEnded,
@@ -137,8 +120,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
   }
 }
 
-// ── Pre-call body ─────────────────────────────────────────────────────────────
-
 class _PreCallBody extends StatelessWidget {
   const _PreCallBody({
     required this.signalingState,
@@ -163,13 +144,9 @@ class _PreCallBody extends StatelessWidget {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 8),
-        Text(
-          'Peer: $peerId',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
+        Text('Peer: $peerId', style: Theme.of(context).textTheme.bodyMedium),
         const SizedBox(height: 16),
-        if (signalingState == _SignalingState.dialing ||
-            signalingState == _SignalingState.ringing)
+        if (signalingState == _SignalingState.dialing)
           const CircularProgressIndicator()
         else
           FilledButton.icon(
@@ -182,9 +159,8 @@ class _PreCallBody extends StatelessWidget {
   }
 
   String get _label => switch (signalingState) {
-        _SignalingState.idle => 'Video call with SDKConnect',
-        _SignalingState.dialing => 'Dialing…',
-        _SignalingState.ringing => 'Ringing…',
-        _SignalingState.rejected => 'Call rejected — try again',
-      };
+    _SignalingState.idle => 'Video call with SDKConnect',
+    _SignalingState.dialing => 'Dialing…',
+    _SignalingState.rejected => 'Call rejected — try again',
+  };
 }

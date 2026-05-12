@@ -3,10 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sdk_connect/sdk/sdk_connect_api.dart';
 
-/// Reusable voice-call widget for consumer UI integration.
+/// Reusable voice-call widget for plug-and-play consumer UI.
 ///
-/// Consumes [SDKConnect] runtime state exclusively — it owns no signaling or
-/// reconnect logic. Supply [callbacks] to react to lifecycle transitions.
+/// Observer-only: reads [SDKConnect] runtime state and does not own signaling.
+///
+/// Callback behavior:
+/// - [SDKConnectWidgetCallbacks.onCallStateChanged] fires on phase changes.
+/// - [SDKConnectWidgetCallbacks.onReconnect] fires once per reconnect entry.
+/// - [SDKConnectWidgetCallbacks.onDisconnected]/[SDKConnectWidgetCallbacks.onEnded]
+///   fire only for terminal states (disconnected/failed).
+///
+/// Built-in fallback UI includes participant avatar, status text, and controls.
 ///
 /// Widget phase mapping:
 /// - CALLING   → [SDKConnectConnectionState.connecting]
@@ -81,7 +88,8 @@ class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
     }
 
     // Terminal state handling — deduplicated.
-    final isTerminal = conn == SDKConnectConnectionState.disconnected ||
+    final isTerminal =
+        conn == SDKConnectConnectionState.disconnected ||
         conn == SDKConnectConnectionState.failed;
 
     if (isTerminal) {
@@ -106,8 +114,11 @@ class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
         final runtime = snapshot.data ?? widget.sdk.runtimeState;
         final call = runtime.callState;
         final peerId =
-            runtime.participants.remoteParticipantId ?? call.session?.peerId ?? 'Remote';
-        final isConnected = runtime.connectionState == SDKConnectConnectionState.connected;
+            runtime.participants.remoteParticipantId ??
+            call.session?.peerId ??
+            'Remote';
+        final isConnected =
+            runtime.connectionState == SDKConnectConnectionState.connected;
         final isReconnecting =
             runtime.connectionState == SDKConnectConnectionState.reconnecting;
         final isWeakNetwork = runtime.network.isWeak;
@@ -160,23 +171,36 @@ class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
                     alignment: WrapAlignment.center,
                     children: <Widget>[
                       _ControlChip(
-                        icon: runtime.media.localAudioEnabled ? Icons.mic : Icons.mic_off,
-                        label: runtime.media.localAudioEnabled ? 'Mute' : 'Unmute',
-                        onTap: isConnected || isReconnecting ? widget.sdk.toggleMute : null,
+                        icon: runtime.media.localAudioEnabled
+                            ? Icons.mic
+                            : Icons.mic_off,
+                        label: runtime.media.localAudioEnabled
+                            ? 'Mute'
+                            : 'Unmute',
+                        onTap: isConnected || isReconnecting
+                            ? widget.sdk.toggleMute
+                            : null,
                       ),
                       _ControlChip(
-                        icon: runtime.media.audioRoute == SDKConnectAudioRoute.speaker
+                        icon:
+                            runtime.media.audioRoute ==
+                                SDKConnectAudioRoute.speaker
                             ? Icons.volume_up
                             : Icons.hearing,
-                        label: runtime.media.audioRoute == SDKConnectAudioRoute.speaker
+                        label:
+                            runtime.media.audioRoute ==
+                                SDKConnectAudioRoute.speaker
                             ? 'Speaker Off'
                             : 'Speaker On',
-                        onTap: isConnected || isReconnecting ? widget.sdk.toggleSpeaker : null,
+                        onTap: isConnected || isReconnecting
+                            ? widget.sdk.toggleSpeaker
+                            : null,
                       ),
                       _ControlChip(
                         icon: Icons.call_end,
                         label: 'End',
-                        onTap: () => widget.sdk.endCall(reason: 'ended_by_user'),
+                        onTap: () =>
+                            widget.sdk.endCall(reason: 'ended_by_user'),
                         backgroundColor: Colors.red,
                         foregroundColor: Colors.white,
                       ),
@@ -202,8 +226,10 @@ class _RemoteVoiceCallWidgetState extends State<RemoteVoiceCallWidget> {
       SDKConnectConnectionState.connecting => 'Connecting...',
       SDKConnectConnectionState.connected => 'Connected',
       SDKConnectConnectionState.reconnecting => 'Reconnecting...',
-      SDKConnectConnectionState.disconnected => runtime.callState.reason ?? 'Disconnected',
-      SDKConnectConnectionState.failed => runtime.callState.reason ?? 'Connection failed',
+      SDKConnectConnectionState.disconnected =>
+        runtime.callState.reason ?? 'Disconnected',
+      SDKConnectConnectionState.failed =>
+        runtime.callState.reason ?? 'Connection failed',
     };
   }
 }
@@ -223,8 +249,12 @@ class _StatusBanner extends StatelessWidget {
       return const SizedBox(height: 8);
     }
 
-    final color = isReconnecting ? const Color(0xFFB45309) : const Color(0xFFB91C1C);
-    final text = isReconnecting ? 'Reconnecting…' : 'Weak network, prioritizing audio';
+    final color = isReconnecting
+        ? const Color(0xFFB45309)
+        : const Color(0xFFB91C1C);
+    final text = isReconnecting
+        ? 'Reconnecting…'
+        : 'Weak network, prioritizing audio';
 
     return Container(
       width: double.infinity,
@@ -235,7 +265,10 @@ class _StatusBanner extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
         textAlign: TextAlign.center,
       ),
     );

@@ -1,5 +1,5 @@
 {
-  "feature": "SDKConnect widget lifecycle mapping refactor",
+  "feature": "SDKConnect cleanup and consumer API documentation",
   "agents": [
     "joko-builder",
     "senior-reviewer",
@@ -7,9 +7,11 @@
   ],
   "skills": [
     "sdk-architecture-skill",
-    "realtime-lifecycle-safety-skill",
-    "sdkconnect-consumer-skill"
+    "orchestration-efficiency-skill",
+    "memory-governance-skill",
+    "sdkconnect-consumer-skill",
+    "realtime-lifecycle-safety-skill"
   ],
   "outcome": "success",
-  "round": 15
+  "round": 17
 }

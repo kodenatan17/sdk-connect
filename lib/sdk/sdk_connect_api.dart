@@ -10,35 +10,43 @@ import 'package:sdk_connect/sdk/livekit_media_engine_factory.dart';
 import 'package:sdk_connect/sdk/video_call_sdk.dart';
 import 'package:sdk_connect/sdk/voice_call_sdk.dart';
 
-enum SDKConnectCallType {
-  voice,
-  video,
-}
+enum SDKConnectCallType { voice, video }
 
 enum SDKConnectConnectionState {
+  /// No active media session.
   idle,
+
+  /// Session setup is in progress.
   connecting,
+
+  /// Session is active and stable.
   connected,
+
+  /// Session is recovering after interruption.
   reconnecting,
+
+  /// Session terminated gracefully.
   disconnected,
+
+  /// Session terminated due to unrecoverable error.
   failed,
 }
 
 /// Widget-level lifecycle phase that aggregates SDKConnect RTC states with
-/// business signaling categories for consumer UI rendering.
+/// consumer UI rendering states.
 ///
 /// Mapping:
-/// - [calling]   → SDKConnect `connecting`          (dialing / ringing)
+/// - [calling]   → SDKConnect `connecting`
 /// - [connected] → SDKConnect `connected` or `reconnecting`
-/// - [ended]     → SDKConnect `disconnected` or `failed` (rejected / ended)
+/// - [ended]     → SDKConnect `idle`, `disconnected`, or `failed`
 enum SDKConnectWidgetPhase {
-  /// Pre-media phase: outgoing dialing or incoming ringing.
+  /// Session setup phase.
   calling,
 
   /// Media session active; includes temporary reconnecting intervals.
   connected,
 
-  /// Call has terminated (rejected, disconnected, or ended by any party).
+  /// No active session or session has terminated.
   ended;
 
   /// Maps an [SDKConnectConnectionState] to its corresponding widget phase.
@@ -67,10 +75,12 @@ class SDKConnectWidgetCallbacks {
   });
 
   /// Fired every time the [SDKConnectWidgetPhase] changes.
+  ///
+  /// Note: widgets emit [SDKConnectWidgetPhase.ended] on initial mount when
+  /// SDK state is idle (no active session).
   final void Function(SDKConnectWidgetPhase phase)? onCallStateChanged;
 
-  /// Fired once each time the RTC transport enters a reconnecting state
-  /// (LiveKit reconnect / network degradation / ICE recovery).
+  /// Fired once each time the connection enters reconnecting.
   final void Function()? onReconnect;
 
   /// Fired when the session reaches a disconnected or failed state.
@@ -192,11 +202,12 @@ class SDKConnectRuntimeState {
   }) {
     return SDKConnectRuntimeState(
       callState: state,
-      connectionState: _mapConnectionState(state),
+      connectionState: mapConnectionState(state),
       participants: SDKConnectParticipantState(
         localParticipantId: localUserId,
         remoteParticipantId: state.session?.peerId,
-        hasRemoteParticipant: state.session != null &&
+        hasRemoteParticipant:
+            state.session != null &&
             (state.phase == CallPhase.connecting ||
                 state.phase == CallPhase.connected ||
                 state.phase == CallPhase.reconnecting),
@@ -205,7 +216,8 @@ class SDKConnectRuntimeState {
         localAudioEnabled: !state.isMuted,
         remoteAudioEnabled: state.session != null,
         localVideoEnabled: state.isVideoEnabled,
-        remoteVideoEnabled: state.session?.callType == CallType.video && state.session != null,
+        remoteVideoEnabled:
+            state.session?.callType == CallType.video && state.session != null,
         audioRoute: audioRoute,
       ),
       network: SDKConnectNetworkState(
@@ -232,7 +244,10 @@ class SDKConnectRuntimeState {
     );
   }
 
-  static SDKConnectConnectionState _mapConnectionState(CallState state) {
+  /// Maps core call state to public SDK connection state.
+  ///
+  /// This is the single mapping used by SDK runtime and widgets.
+  static SDKConnectConnectionState mapConnectionState(CallState state) {
     return switch (state.phase) {
       CallPhase.idle => SDKConnectConnectionState.idle,
       CallPhase.connecting => SDKConnectConnectionState.connecting,
@@ -245,10 +260,7 @@ class SDKConnectRuntimeState {
 }
 
 class SDKConnectCredentials {
-  const SDKConnectCredentials({
-    required this.roomUrl,
-    required this.token,
-  });
+  const SDKConnectCredentials({required this.roomUrl, required this.token});
 
   final String roomUrl;
   final String token;
@@ -294,14 +306,20 @@ class SDKConnectReliabilityConfig {
   final CallNetworkThresholds networkThresholds;
 }
 
-typedef SDKConnectTokenProvider = Future<SDKConnectCredentials> Function(
-  SDKConnectTokenRequest request,
-);
+typedef SDKConnectTokenProvider =
+    Future<SDKConnectCredentials> Function(SDKConnectTokenRequest request);
 
 enum SDKConnectEventKind {
+  /// User-intent level events from SDK session flow.
   user,
+
+  /// Lifecycle and transport-status events.
   connection,
+
+  /// Sanitized runtime errors surfaced by the SDK.
   error,
+
+  /// Token lifecycle events for token-provider observability.
   token,
 }
 
@@ -371,10 +389,8 @@ enum SDKConnectConnectionEventType {
 }
 
 class SDKConnectConnectionEvent extends SDKConnectEvent {
-  const SDKConnectConnectionEvent({
-    required this.type,
-    required this.state,
-  }) : super(SDKConnectEventKind.connection);
+  const SDKConnectConnectionEvent({required this.type, required this.state})
+    : super(SDKConnectEventKind.connection);
 
   final SDKConnectConnectionEventType type;
   final CallState state;
@@ -445,6 +461,9 @@ class SDKConnectErrorEvent extends SDKConnectEvent {
   }
 }
 
+/// Public callbacks for custom UI consumers.
+///
+/// These callbacks observe SDK/engine state only and do not own signaling.
 class SDKConnectCallbacks {
   const SDKConnectCallbacks({
     this.onEvent,
@@ -474,8 +493,12 @@ class SDKConnectCallbacks {
   final void Function(SDKConnectErrorEvent event)? onError;
   final void Function(SDKConnectTokenEvent event)? onToken;
 
+  /// Lightweight runtime callbacks for plug-and-play UI consumers.
+  ///
+  /// These callbacks observe [CallEngine] state transitions and do not own
+  /// signaling decisions.
   final void Function(SDKConnectConnectionState state, CallState callState)?
-      onConnectionStateChanged;
+  onConnectionStateChanged;
   final void Function(CallState callState)? onReconnecting;
   final void Function(CallState callState)? onReconnected;
   final void Function(CallState callState, String? reason)? onConnectionLost;
@@ -492,19 +515,25 @@ class SDKConnectCallbacks {
 }
 
 class SDKConnect {
+  /// Creates SDKConnect with an externally managed [CallEngine].
+  ///
+  /// Ownership boundary:
+  /// - Business signaling (invite/accept/reject) stays outside SDKConnect.
+  /// - SDKConnect owns media-session lifecycle.
+  /// - Widgets/presentation only render observed runtime state.
   SDKConnect({
     required String localUserId,
     required CallEngine callEngine,
     required SDKConnectTokenProvider tokenProvider,
     SDKConnectCallbacks callbacks = const SDKConnectCallbacks(),
-  })  : _callEngine = callEngine,
-        _callbacks = callbacks,
-        _localUserId = localUserId,
-        _runtimeState = SDKConnectRuntimeState.fromCallState(
-          callEngine.state,
-          localUserId: localUserId,
-        ),
-        _ownsEngine = false {
+  }) : _callEngine = callEngine,
+       _callbacks = callbacks,
+       _localUserId = localUserId,
+       _runtimeState = SDKConnectRuntimeState.fromCallState(
+         callEngine.state,
+         localUserId: localUserId,
+       ),
+       _ownsEngine = false {
     _voiceSdk = VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
@@ -527,10 +556,7 @@ class SDKConnect {
     voice = SDKConnectVoiceApi._(this);
     video = SDKConnectVideoApi._(
       this,
-      VideoCallSdk(
-        voiceSdk: _voiceSdk,
-        callEngine: _callEngine,
-      ),
+      VideoCallSdk(voiceSdk: _voiceSdk, callEngine: _callEngine),
     );
     _bindRuntimeStateStreams();
   }
@@ -539,7 +565,8 @@ class SDKConnect {
     required String localUserId,
     required SDKConnectTokenProvider tokenProvider,
     SDKConnectCallbacks callbacks = const SDKConnectCallbacks(),
-    SDKConnectReliabilityConfig reliability = const SDKConnectReliabilityConfig(),
+    SDKConnectReliabilityConfig reliability =
+        const SDKConnectReliabilityConfig(),
     StructuredLogger? logger,
     DateTime Function()? clock,
   }) {
@@ -575,14 +602,14 @@ class SDKConnect {
     required CallEngine callEngine,
     required SDKConnectTokenProvider tokenProvider,
     required SDKConnectCallbacks callbacks,
-  })  : _callEngine = callEngine,
-        _callbacks = callbacks,
-        _localUserId = localUserId,
-        _runtimeState = SDKConnectRuntimeState.fromCallState(
-          callEngine.state,
-          localUserId: localUserId,
-        ),
-        _ownsEngine = true {
+  }) : _callEngine = callEngine,
+       _callbacks = callbacks,
+       _localUserId = localUserId,
+       _runtimeState = SDKConnectRuntimeState.fromCallState(
+         callEngine.state,
+         localUserId: localUserId,
+       ),
+       _ownsEngine = true {
     _voiceSdk = VoiceCallSdk(
       localUserId: localUserId,
       callEngine: callEngine,
@@ -605,10 +632,7 @@ class SDKConnect {
     voice = SDKConnectVoiceApi._(this);
     video = SDKConnectVideoApi._(
       this,
-      VideoCallSdk(
-        voiceSdk: _voiceSdk,
-        callEngine: _callEngine,
-      ),
+      VideoCallSdk(voiceSdk: _voiceSdk, callEngine: _callEngine),
     );
     _bindRuntimeStateStreams();
   }
@@ -640,7 +664,8 @@ class SDKConnect {
   Stream<SDKConnectEvent> get events => _eventsController.stream;
   SDKConnectRuntimeState get runtimeState => _runtimeState;
   Stream<SDKConnectRuntimeState> get runtimeStates => _runtimeController.stream;
-  SDKConnectConnectionState get connectionState => _runtimeState.connectionState;
+  SDKConnectConnectionState get connectionState =>
+      _runtimeState.connectionState;
   SDKConnectParticipantState get participants => _runtimeState.participants;
   SDKConnectMediaState get media => _runtimeState.media;
   SDKConnectNetworkState get network => _runtimeState.network;
@@ -654,20 +679,10 @@ class SDKConnect {
     String? callId,
     SDKConnectCallType callType = SDKConnectCallType.voice,
   }) {
-    return _startCallInternal(peerId: peerId, callId: callId, callType: callType);
-  }
-
-  Future<void> acceptCall({
-    SDKConnectCallType? callType,
-  }) {
-    throw StateError(
-      'acceptCall is removed from SDKConnect. Signaling/invitation flow is handled externally.',
-    );
-  }
-
-  Future<void> rejectCall({String reason = 'rejected'}) {
-    throw StateError(
-      'rejectCall is removed from SDKConnect. Signaling/invitation flow is handled externally.',
+    return _startCallInternal(
+      peerId: peerId,
+      callId: callId,
+      callType: callType,
     );
   }
 
@@ -724,23 +739,23 @@ class SDKConnect {
   }
 
   void _handleStateSnapshotChanged(CallState state) {
-    final nextConnection = _mapConnectionState(state);
+    final nextConnection = SDKConnectRuntimeState.mapConnectionState(state);
     final nextRuntime = _runtimeState.copyWith(
       callState: state,
       connectionState: nextConnection,
       participants: _runtimeState.participants.copyWith(
         localParticipantId: _localUserId,
         remoteParticipantId: state.session?.peerId,
-        hasRemoteParticipant: _runtimeState.participants.hasRemoteParticipant &&
-            (state.phase == CallPhase.connected || state.phase == CallPhase.reconnecting),
+        hasRemoteParticipant:
+            _runtimeState.participants.hasRemoteParticipant &&
+            (state.phase == CallPhase.connected ||
+                state.phase == CallPhase.reconnecting),
       ),
       media: _runtimeState.media.copyWith(
         localAudioEnabled: !state.isMuted,
         localVideoEnabled: state.isVideoEnabled,
       ),
-      network: _runtimeState.network.copyWith(
-        score: state.networkScore,
-      ),
+      network: _runtimeState.network.copyWith(score: state.networkScore),
     );
 
     _runtimeState = nextRuntime;
@@ -767,7 +782,8 @@ class SDKConnect {
   void _handleEngineEvent(CallEngineEvent event) {
     switch (event.type) {
       case CallEngineEventType.participantJoined:
-        final participantId = event.reason ?? _runtimeState.callState.session?.peerId ?? 'remote';
+        final participantId =
+            event.reason ?? _runtimeState.callState.session?.peerId ?? 'remote';
         _runtimeState = _runtimeState.copyWith(
           participants: _runtimeState.participants.copyWith(
             remoteParticipantId: participantId,
@@ -778,7 +794,10 @@ class SDKConnect {
         _emitRuntimeState();
         return;
       case CallEngineEventType.participantLeft:
-        final participantId = event.reason ?? _runtimeState.participants.remoteParticipantId ?? 'remote';
+        final participantId =
+            event.reason ??
+            _runtimeState.participants.remoteParticipantId ??
+            'remote';
         _runtimeState = _runtimeState.copyWith(
           participants: _runtimeState.participants.copyWith(
             hasRemoteParticipant: false,
@@ -806,7 +825,10 @@ class SDKConnect {
             isRecovered: false,
           ),
         );
-        _callbacks.onCallWarning?.call('network_degraded', _runtimeState.callState);
+        _callbacks.onCallWarning?.call(
+          'network_degraded',
+          _runtimeState.callState,
+        );
         _callbacks.onNetworkQualityChanged?.call(_runtimeState.network);
         _emitRuntimeState();
         return;
@@ -818,7 +840,10 @@ class SDKConnect {
             isRecovered: true,
           ),
         );
-        _callbacks.onCallRecovered?.call('network_recovered', _runtimeState.callState);
+        _callbacks.onCallRecovered?.call(
+          'network_recovered',
+          _runtimeState.callState,
+        );
         _callbacks.onNetworkQualityChanged?.call(_runtimeState.network);
         _emitRuntimeState();
         return;
@@ -828,7 +853,10 @@ class SDKConnect {
         return;
       case CallEngineEventType.recovered:
         _callbacks.onReconnected?.call(_runtimeState.callState);
-        _callbacks.onCallRecovered?.call('reconnected', _runtimeState.callState);
+        _callbacks.onCallRecovered?.call(
+          'reconnected',
+          _runtimeState.callState,
+        );
         return;
       case CallEngineEventType.localAudioChanged:
         final enabled = event.reason != 'local_audio_disabled';
@@ -938,14 +966,6 @@ class SDKConnect {
     }
   }
 
-  Future<void> _acceptCallInternal({
-    SDKConnectCallType? callType,
-  }) {
-    throw StateError(
-      'acceptCall is removed from SDKConnect. Signaling/invitation flow is handled externally.',
-    );
-  }
-
   SDKConnectCallType _resolveCurrentCallType() {
     final sessionType = _callEngine.state.session?.callType;
     if (sessionType == null) {
@@ -962,17 +982,6 @@ class SDKConnect {
     return _nextOutgoingCallType;
   }
 
-  SDKConnectConnectionState _mapConnectionState(CallState state) {
-    return switch (state.phase) {
-      CallPhase.idle => SDKConnectConnectionState.idle,
-      CallPhase.connecting => SDKConnectConnectionState.connecting,
-      CallPhase.connected => SDKConnectConnectionState.connected,
-      CallPhase.reconnecting => SDKConnectConnectionState.reconnecting,
-      CallPhase.disconnected => SDKConnectConnectionState.disconnected,
-      CallPhase.failed => SDKConnectConnectionState.failed,
-    };
-  }
-
   SDKConnectAudioRoute _toPublicAudioRoute(CallAudioRoute? route) {
     return switch (route) {
       CallAudioRoute.earpiece => SDKConnectAudioRoute.earpiece,
@@ -985,7 +994,8 @@ class SDKConnect {
   }
 
   bool _isConnectionLostState(CallState state) {
-    if (state.phase != CallPhase.disconnected && state.phase != CallPhase.failed) {
+    if (state.phase != CallPhase.disconnected &&
+        state.phase != CallPhase.failed) {
       return false;
     }
 
@@ -1012,7 +1022,8 @@ class SDKConnect {
   }
 
   void _ensureVideoOrVoice(SDKConnectCallType callType) {
-    if (callType == SDKConnectCallType.voice || callType == SDKConnectCallType.video) {
+    if (callType == SDKConnectCallType.voice ||
+        callType == SDKConnectCallType.video) {
       return;
     }
     throw UnsupportedError('Unsupported callType: ${callType.name}.');
@@ -1031,23 +1042,12 @@ class SDKConnectVoiceApi {
     return _sdk.initialize(localUserId: localUserId);
   }
 
-  Future<void> startCall({
-    required String peerId,
-    String? callId,
-  }) {
+  Future<void> startCall({required String peerId, String? callId}) {
     return _sdk._startCallInternal(
       peerId: peerId,
       callId: callId,
       callType: SDKConnectCallType.voice,
     );
-  }
-
-  Future<void> acceptCall() {
-    return _sdk._acceptCallInternal(callType: SDKConnectCallType.voice);
-  }
-
-  Future<void> rejectCall({String reason = 'rejected'}) {
-    return _sdk.rejectCall(reason: reason);
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) {
@@ -1084,23 +1084,12 @@ class SDKConnectVideoApi {
     return _sdk.initialize(localUserId: localUserId);
   }
 
-  Future<void> startCall({
-    required String peerId,
-    String? callId,
-  }) {
+  Future<void> startCall({required String peerId, String? callId}) {
     return _sdk._startCallInternal(
       peerId: peerId,
       callId: callId,
       callType: SDKConnectCallType.video,
     );
-  }
-
-  Future<void> acceptCall() {
-    return _sdk._acceptCallInternal(callType: SDKConnectCallType.video);
-  }
-
-  Future<void> rejectCall({String reason = 'rejected'}) {
-    return _sdk.rejectCall(reason: reason);
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) {

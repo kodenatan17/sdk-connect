@@ -2,9 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sdk_connect/core/enums/call_phase.dart';
-import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
-import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/infrastructure/media/media_engine.dart';
 import 'package:sdk_connect/sdk_connect.dart';
@@ -66,19 +63,6 @@ void main() {
 
     await sdk.dispose();
     await engine.dispose();
-  });
-
-  test('SDKConnect no longer owns accept/reject lifecycle', () async {
-    final sdk = SDKConnect(
-      localUserId: 'user-a',
-      callEngine: CallEngine(mediaEngine: _FakeMediaEngine(), logger: _InMemoryLogger()),
-      tokenProvider: (_) async => validCredentials,
-    );
-
-    await expectLater(() => sdk.acceptCall(), throwsA(isA<StateError>()));
-    await expectLater(() => sdk.rejectCall(), throwsA(isA<StateError>()));
-
-    await sdk.dispose();
   });
 
   test('CallEngine rejects expired JWT token', () async {

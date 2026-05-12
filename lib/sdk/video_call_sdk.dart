@@ -1,6 +1,5 @@
 import 'package:sdk_connect/core/models/call_state.dart';
 import 'package:sdk_connect/core/enums/call_type.dart';
-import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/sdk/video_picture_in_picture.dart';
 import 'package:sdk_connect/sdk/voice_call_sdk.dart';
@@ -36,18 +35,6 @@ class VideoCallSdk {
       callType: CallType.video,
     );
     await _callEngine.setVideoEnabled(true);
-  }
-
-  Future<void> acceptCall() async {
-    throw CallLifecycleException(
-      'acceptCall is removed from VideoCallSdk. Signaling/invitation flow is handled externally.',
-    );
-  }
-
-  Future<void> rejectCall({String reason = 'rejected'}) {
-    throw CallLifecycleException(
-      'rejectCall is removed from VideoCallSdk. Signaling/invitation flow is handled externally.',
-    );
   }
 
   Future<void> endCall({String reason = 'ended_by_user'}) {

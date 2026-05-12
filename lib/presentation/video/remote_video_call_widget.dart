@@ -4,10 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:sdk_connect/presentation/video/video_call_widgets.dart';
 import 'package:sdk_connect/sdk/sdk_connect_api.dart';
 
-/// Reusable video-call widget for consumer UI integration.
+/// Reusable video-call widget for plug-and-play consumer UI.
 ///
-/// Consumes [SDKConnect] runtime state exclusively — it owns no signaling or
-/// reconnect logic. Supply [callbacks] to react to lifecycle transitions.
+/// Observer-only: reads [SDKConnect] runtime state and does not own signaling.
+///
+/// Fallback behavior:
+/// - If [remoteVideo] is null or remote video is unavailable, a built-in
+///   remote placeholder is shown.
+/// - If [localVideo] is null or local camera is disabled, a built-in local
+///   placeholder is shown.
+///
+/// Terminal callbacks fire only for disconnected/failed states.
 ///
 /// Widget phase mapping:
 /// - CALLING   → [SDKConnectConnectionState.connecting]
@@ -86,7 +93,8 @@ class _RemoteVideoCallWidgetState extends State<RemoteVideoCallWidget> {
     }
 
     // Terminal state handling — deduplicated.
-    final isTerminal = conn == SDKConnectConnectionState.disconnected ||
+    final isTerminal =
+        conn == SDKConnectConnectionState.disconnected ||
         conn == SDKConnectConnectionState.failed;
 
     if (isTerminal) {
@@ -109,7 +117,8 @@ class _RemoteVideoCallWidgetState extends State<RemoteVideoCallWidget> {
       stream: widget.sdk.runtimeStates,
       builder: (context, snapshot) {
         final runtime = snapshot.data ?? widget.sdk.runtimeState;
-        final isConnected = runtime.connectionState == SDKConnectConnectionState.connected;
+        final isConnected =
+            runtime.connectionState == SDKConnectConnectionState.connected;
         final isReconnecting =
             runtime.connectionState == SDKConnectConnectionState.reconnecting;
 
@@ -133,7 +142,8 @@ class _RemoteVideoCallWidgetState extends State<RemoteVideoCallWidget> {
                     child: runtime.media.remoteVideoEnabled
                         ? widget.remoteVideo
                         : _VideoPlaceholder(
-                            title: runtime.participants.remoteParticipantId ??
+                            title:
+                                runtime.participants.remoteParticipantId ??
                                 'Remote participant',
                             subtitle: runtime.participants.hasRemoteParticipant
                                 ? 'Camera off'
@@ -156,7 +166,10 @@ class _RemoteVideoCallWidgetState extends State<RemoteVideoCallWidget> {
                   alignment: Alignment.topCenter,
                   child: Container(
                     margin: const EdgeInsets.only(top: 12),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: isReconnecting
                           ? const Color(0xCCB45309)
@@ -168,7 +181,9 @@ class _RemoteVideoCallWidgetState extends State<RemoteVideoCallWidget> {
                           ? 'Reconnecting…'
                           : 'Weak network, reducing video quality',
                       style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.w600),
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
@@ -182,13 +197,17 @@ class _RemoteVideoCallWidgetState extends State<RemoteVideoCallWidget> {
                     alignment: WrapAlignment.center,
                     children: <Widget>[
                       _ControlCircle(
-                        icon: runtime.media.localAudioEnabled ? Icons.mic : Icons.mic_off,
+                        icon: runtime.media.localAudioEnabled
+                            ? Icons.mic
+                            : Icons.mic_off,
                         onTap: isConnected || isReconnecting
                             ? widget.sdk.toggleMute
                             : null,
                       ),
                       _ControlCircle(
-                        icon: runtime.media.audioRoute == SDKConnectAudioRoute.speaker
+                        icon:
+                            runtime.media.audioRoute ==
+                                SDKConnectAudioRoute.speaker
                             ? Icons.volume_up
                             : Icons.hearing,
                         onTap: isConnected || isReconnecting
@@ -206,7 +225,8 @@ class _RemoteVideoCallWidgetState extends State<RemoteVideoCallWidget> {
                       _ControlCircle(
                         icon: Icons.call_end,
                         backgroundColor: Colors.red,
-                        onTap: () => widget.sdk.endCall(reason: 'ended_by_user'),
+                        onTap: () =>
+                            widget.sdk.endCall(reason: 'ended_by_user'),
                       ),
                     ],
                   ),
@@ -221,10 +241,7 @@ class _RemoteVideoCallWidgetState extends State<RemoteVideoCallWidget> {
 }
 
 class _VideoPlaceholder extends StatelessWidget {
-  const _VideoPlaceholder({
-    required this.title,
-    required this.subtitle,
-  });
+  const _VideoPlaceholder({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
@@ -246,10 +263,7 @@ class _VideoPlaceholder extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: const TextStyle(color: Color(0xFFCBD5E1)),
-            ),
+            Text(subtitle, style: const TextStyle(color: Color(0xFFCBD5E1))),
           ],
         ),
       ),

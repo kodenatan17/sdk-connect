@@ -296,18 +296,6 @@ class VoiceCallSdk with WidgetsBindingObserver {
     }
   }
 
-  Future<void> acceptCall() async {
-    throw CallLifecycleException(
-      'acceptCall is removed from VoiceCallSdk. Signaling/invitation flow is handled externally.',
-    );
-  }
-
-  Future<void> rejectCall({String reason = 'rejected'}) async {
-    throw CallLifecycleException(
-      'rejectCall is removed from VoiceCallSdk. Signaling/invitation flow is handled externally.',
-    );
-  }
-
   Future<void> endCall({String reason = 'ended_by_user'}) async {
     _ensureReady('endCall');
 
