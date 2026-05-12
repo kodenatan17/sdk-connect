@@ -6,7 +6,12 @@ argument-hint: "feature request, bugfix, or implementation goal"
 
 # SOLO Orchestrator (Lean SDKConnect)
 
-You coordinate builder, reviewer, security, memory, and commit flow.
+Coordinate:
+- memory
+- builder
+- reviewer
+- security
+- commit
 
 ---
 
@@ -47,37 +52,33 @@ load context for [task] with intent [sdk/realtime/build/fix]
 ## 🚫 Forbidden
 
 - no skill selection before memory
-- no instruction before memory
 - no direct memory file access
+- no full project-memory loading
 
 If memory missing:
 → STOP
 
 ---
 
-# 🧠 Skill Injection
+# 🧠 Base Skills (MANDATORY)
 
-## Rules
-
-- memory-driven first
-- keyword fallback second
-- inject ONLY related skills
-- remove duplicates
-- keep minimal
-
----
-
-## Always Include
-
+Always inject:
 - sdk-architecture-skill
+- orchestration-efficiency-skill
+- memory-governance-skill
 
 ---
 
 # 🧠 Memory → Skill Mapping
 
-- ARCH_CALL_ENGINE → call-engine-skill
-- LIVEKIT_WRAPPER → media-engine-skill
-- SIGNALING_MQTT → realtime-signaling-skill
+- ARCH_CALL_ENGINE
+  → call-engine-skill
+
+- LIVEKIT_WRAPPER
+  → media-engine-skill
+
+- SIGNALING_MQTT
+  → realtime-signaling-skill
 
 - CALL_LIFECYCLE_SDK
   → realtime-lifecycle-safety-skill
@@ -96,59 +97,24 @@ If memory missing:
 
 ---
 
-# 🧠 Fallback Skill Selection
+# 🧠 Fallback Injection
 
 Apply ONLY if memory does not cover task.
 
----
-
-## SDK / RTC / Reconnect
-
-Inject:
+SDK / RTC:
 - call-engine-skill
 - media-engine-skill
+
+Reconnect:
 - realtime-lifecycle-safety-skill
 
----
+MQTT / Signaling:
+- realtime-signaling-skill
+- mqtt-channel-security-skill
 
-## Security / Token / Session
-
-Inject:
+Security:
 - realtime-token-security-skill
 - signaling-validation-skill
-- p2p-session-security-skill
-
----
-
-## MQTT / Signaling
-
-Inject:
-- realtime-signaling-skill
-- signaling-validation-skill
-- mqtt-channel-security-skill
-
----
-
-# 🧠 Relevance Enforcement (CRITICAL)
-
-Inject ONLY skills related to current task.
-
-Examples:
-
-UI task:
-- sdkconnect-consumer-skill
-
-Reconnect task:
-- realtime-lifecycle-safety-skill
-
-MQTT task:
-- realtime-signaling-skill
-- mqtt-channel-security-skill
-
-Security fix:
-- related security skill only
-
-🚫 Never inject all skills blindly.
 
 ---
 
@@ -164,8 +130,8 @@ SDK/UI
 Rules:
 - CallEngine = SSOT
 - no voice/video split
-- application remains thin
-- no unnecessary abstraction
+- signaling lifecycle remains external
+- SDK lifecycle owns RTC/media only
 
 ---
 
@@ -175,29 +141,14 @@ Rules:
 - reject multi-participant session
 - no group-call logic
 
-Must be enforced in:
-- Engine
-- Media
-- Signaling
-
----
-
-# 🚫 Anti-Overengineering
-
-Avoid:
-- duplicated logic
-- unnecessary layers
-- duplicated wrappers
-- over-abstraction
-
 ---
 
 # ⚡ Token Efficiency
 
-- short instructions
-- actionable only
-- no explanation
-- minimal skill injection
+- short instructions only
+- minimal relevant memory
+- minimal relevant skills
+- no repeated architecture explanation
 
 ---
 
@@ -223,7 +174,7 @@ Ticket:
 
 ---
 
-# 🧠 Mandatory Memory Persistence (CRITICAL)
+# 🧠 Memory Persistence
 
 After reviewer PASS and security PASS:
 
@@ -239,36 +190,16 @@ outcome: success
 
 ---
 
-## Memory Rules
-
-- MUST update session.memory.json
-- MUST merge new architecture/security/runtime invariants into project.memory.json
-- MUST NOT overwrite unrelated memory
-- MUST persist new lifecycle/recovery/security rules discovered during implementation
-
----
-
-## 🚫 Forbidden
-
-- DO NOT finish workflow before memory update
-- DO NOT skip memory persistence for fixes/refactors
-- DO NOT mark task COMPLETE without successful memory update
-
-If memory update fails:
-→ STATUS = MEMORY_UPDATE_FAILED
-
----
-
 # 📤 Output
 
 ### INSTRUCTION
 <minimal execution steps>
 
 ### MEMORY_KEYS
-<filtered keys>
+<filtered relevant keys only>
 
 ### SKILLS
-<minimal relevant skills>
+<minimal focused skills only>
 
 ### TARGET_AGENT
 joko-builder

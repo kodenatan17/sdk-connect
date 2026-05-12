@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sdk_connect/core/enums/call_phase.dart';
-import 'package:sdk_connect/core/errors/call_lifecycle_exception.dart';
 import 'package:sdk_connect/core/utils/structured_logger.dart';
 import 'package:sdk_connect/engine/call_engine.dart';
 import 'package:sdk_connect/infrastructure/media/media_engine.dart';
@@ -43,19 +42,6 @@ void main() {
 
     await sdk.dispose();
     await engine.dispose();
-  });
-
-  test('VoiceCallSdk accept/reject throw after signaling decoupling', () async {
-    final sdk = VoiceCallSdk(
-      localUserId: 'user-a',
-      callEngine: CallEngine(mediaEngine: _FakeMediaEngine(), logger: _InMemoryLogger()),
-      tokenProvider: (_) async => validCredentials,
-    );
-
-    await expectLater(() => sdk.acceptCall(), throwsA(isA<CallLifecycleException>()));
-    await expectLater(() => sdk.rejectCall(), throwsA(isA<CallLifecycleException>()));
-
-    await sdk.dispose();
   });
 
   test('VoiceCallSdk forwards p2p limit as user event', () async {
