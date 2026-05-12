@@ -4,21 +4,22 @@ description: Persistent memory system with project, session, and task layers
 argument-hint: "load context or update memory"
 ---
 
-# 🧠 Memory System (3-Layer Persistent)
+# 🧠 Memory System (Lean Persistent Architecture)
 
-You manage memory across three layers:
+Manage memory across:
 
-1. Project Memory (global patterns & architecture)
-2. Session Memory (current feature context)
-3. Task Memory (iteration & failure tracking)
+1. Project Memory → stable architecture/runtime/security invariants
+2. Session Memory → active feature context
+3. Task Memory → temporary fix/debug loop
 
 ---
 
-# 📁 Storage (MANDATORY)
+# 📁 Storage
 
 - .github/memory/project.memory.json
 - .github/memory/session.memory.json
 - .github/memory/task.memory.json
+- .github/memory/memory.index.json
 
 ---
 
@@ -30,60 +31,65 @@ load context for [task] with intent [intent]
 
 ---
 
-## 🧠 Behavior
+## 🧠 Load Strategy
 
-### 1. Read all memory layers
+### 1. Load lightweight memory first
 
-- Read project.memory.json
-- Read session.memory.json
-- Read task.memory.json (if exists)
+Read:
+- memory.index.json
+- session.memory.json
+- task.memory.json (optional)
+
+DO NOT load full project memory initially.
 
 ---
 
-### 2. Filter relevant keys
+### 2. Retrieve relevant keys only
 
-Return ONLY relevant keys based on task.
+Load full entries ONLY if related to:
+- architecture
+- signaling
+- RTC/media
+- security
+- lifecycle/recovery
+- active feature scope
 
-Priority order:
+Priority:
 1. ARCH_*
 2. SEC_*
-3. SIGNALING / SDK patterns
-4. FEATURE / domain
+3. RTC_*
+4. RULE_*
 
 ---
 
-### 3. Include session context
+### 3. Include active context
 
-From session.memory.json:
+Session:
 - feature
 - round
 
----
-
-### 4. Include task context (if exists)
-
-From task.memory.json:
+Task:
 - last_finding
 - round
 
 ---
 
-## 📤 OUTPUT FORMAT
+## 📤 OUTPUT
 
-### MEMORY KEYS
+### MEMORY_KEYS
 <filtered keys only>
 
-### SESSION INFO
+### SESSION_INFO
 Feature: <feature>
 Round: <round>
 
-### TASK INFO (optional)
+### TASK_INFO
 Last Finding: <finding>
 Round: <round>
 
 ---
 
-# 📥 RECORD TASK (FAIL LOOP)
+# 📥 RECORD TASK
 
 Input:
 
@@ -97,35 +103,19 @@ files: [list]
 
 ## Behavior
 
-- Increment round
-- Store ONLY latest finding
-- Overwrite previous task memory
+- increment round
+- overwrite previous task memory
+- keep latest finding only
 
 ---
 
-## Write Target (MANDATORY)
+## Write Target
 
 .github/memory/task.memory.json
 
 ---
 
-## Example
-
-```json
-{
-  "last_finding": "Token not validated before startCall",
-  "fix_applied": false,
-  "files": ["call_engine.dart"],
-  "round": 2
-}
-
-OUTPUT
-
-TASK MEMORY UPDATED
-
-Round: <n>
-
-📥 UPDATE MEMORY (SUCCESS ONLY)
+# 📥 UPDATE MEMORY
 
 Input:
 
@@ -137,39 +127,64 @@ skills: [list]
 outcome: success
 new_patterns: [optional]
 
-🧠 Behavior
-1. Update Session Memory
+---
 
-Write to:
+## Behavior
 
-.github/memory/session.memory.json
+### 1. Update Session Memory
 
-Example:
-{
-  "feature": "<feature>",
-  "agents": ["joko-builder", "senior-reviewer", "pakpol-security"],
-  "skills": ["flutter-architecture-skill"],
-  "round": 1
-}
+Write:
+- feature
+- agents
+- skills
+- round
 
-2. Clear Task Memory
-Delete or reset task.memory.json
-3. Update Project Memory (OPTIONAL)
+---
 
-ONLY if:
+### 2. Clear Task Memory
 
-reusable pattern
-affects architecture
-used multiple times
-🧾 Write Rules (CRITICAL)
-MUST write to actual JSON files
-MUST merge with existing data
-MUST NOT overwrite entire file blindly
-🚫 DO NOT
-DO NOT log only
-DO NOT use external memory tools
-DO NOT skip file write
-📤 OUTPUT FORMAT
+Reset/remove:
+- task.memory.json
+
+---
+
+### 3. Update Project Memory (Selective)
+
+Persist ONLY if:
+- reusable across features
+- affects architecture/runtime/security
+- changes orchestration/review behavior
+- required for future consistency
+
+DO NOT persist:
+- minor refactor
+- styling/UI tweaks
+- one-off fixes
+- temporary workaround
+- implementation detail
+- example-only changes
+
+---
+
+## Write Rules
+
+- MUST merge existing memory
+- MUST NOT overwrite unrelated entries
+- MUST keep project memory normalized/minimal
+- MUST avoid duplicate invariants
+
+---
+
+## 🚫 Forbidden
+
+- DO NOT load entire project memory blindly
+- DO NOT treat memory as commit history
+- DO NOT persist every implementation change
+- DO NOT skip actual file write
+
+---
+
+## 📤 OUTPUT
 
 MEMORY UPDATED
 
