@@ -208,8 +208,7 @@ class SDKConnectRuntimeState {
         remoteParticipantId: state.session?.peerId,
         hasRemoteParticipant:
             state.session != null &&
-            (state.phase == CallPhase.connecting ||
-                state.phase == CallPhase.connected ||
+            (state.phase == CallPhase.connected ||
                 state.phase == CallPhase.reconnecting),
       ),
       media: SDKConnectMediaState(

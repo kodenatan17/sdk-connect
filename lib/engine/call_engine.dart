@@ -1279,7 +1279,9 @@ class CallEngine {
   }
 
   Future<void> _restoreMediaSession() async {
-    if (_state.phase != CallPhase.connected || _state.session == null) {
+    if ((_state.phase != CallPhase.connected &&
+            _state.phase != CallPhase.reconnecting) ||
+        _state.session == null) {
       return;
     }
 
