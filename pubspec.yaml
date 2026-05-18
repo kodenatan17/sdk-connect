@@ -1,6 +1,6 @@
 name: sdk_connect
-description: "A new Flutter package project."
-version: 0.0.1
+description: "A transport-agnostic Flutter P2P call SDK with voice and video support."
+version: 0.0.3
 homepage:
 
 environment:

@@ -1,17 +1,13 @@
 {
-  "feature": "SDKConnect cleanup and consumer API documentation",
+  "feature": "ARCHITECTURE.md documentation",
   "agents": [
-    "joko-builder",
-    "senior-reviewer",
-    "pakpol-security"
+    "mbg-memory-system",
+    "Explore"
   ],
   "skills": [
-    "sdk-architecture-skill",
-    "orchestration-efficiency-skill",
-    "memory-governance-skill",
-    "sdkconnect-consumer-skill",
-    "realtime-lifecycle-safety-skill"
+    "sdk-architecture-skill"
   ],
   "outcome": "success",
-  "round": 17
+  "notes": "Created ARCHITECTURE.md at repo root. Covers layer responsibilities, CallEngine SSOT, signaling vs RTC ownership, lifecycle/data flow (14-step trace), reconnect branch, tracing guide, public entrypoints, and key types reference. No implementation code duplicated. LiveKit isolation rule documented.",
+  "round": 18
 }
