@@ -1,0 +1,489 @@
+{
+  "ARCH": [
+    "ARCH_BLOC_V1",
+    "ARCH_CALL_ENGINE_LIFECYCLE_V1",
+    "ARCH_EXAMPLE_CONSUMER_FACADE_ONLY_V1",
+    "ARCH_EXAMPLE_BOOTSTRAP_NAV_ONLY_V1",
+    "ARCH_EXAMPLE_REMOTE_WIDGET_RENDERING_V1",
+    "ARCH_EXAMPLE_SHARED_BOOTSTRAP_INIT_V1",
+    "ARCH_P2P_LIFECYCLE_EXCEPTION_GUARD_V1"
+  ],
+  "SEC": ["SEC_AUTH_JWT_V1", "SEC_SIGNALING_MQTT_V1"],
+  "RTC": ["RTC_WEBRTC_WRAPPED_V1"],
+  "RULE": [
+    "RULE_SSOT_REQUIRED",
+    "RULE_TOKEN_REQUIRED",
+    "RULE_SDK_ONLY_USAGE_V1",
+    "RULE_P2P_MAX_2_V1",
+    "RULE_LIFECYCLE_PHASES_ENFORCED_V1",
+    "RULE_NO_SDK_SIGNALING_OWNERSHIP_V1",
+    "RULE_CALL_ENGINE_SSOT_REQUIRED_V3"
+  ],
+  "SDK_ABSTRACTION_REQUIRED": {
+  "description": "SDK must abstract LiveKit into a simple consumer API",
+  "rules": [
+    "Consumers must not interact with LiveKit directly",
+    "SDK must expose unified callbacks",
+    "SDK must handle initialization internally",
+    "SDK must unify connection, signaling, and lifecycle"
+  ]
+},
+  "ARCH_VOICE_CALL_SDK_FACADE_V1": {
+    "description": "VoiceCallSdk.liveKit is the primary facade for sdk_connect voice calls and owns CallEngine plus LiveKit media lifecycle",
+    "rules": [
+      "VoiceCallSdk.liveKit manages CallEngine creation and disposal",
+      "VoiceCallSdk.liveKit manages LiveKit media engine lifecycle internally",
+      "Example app and README should use VoiceCallSdk as the primary integration path"
+    ]
+  },
+  "ARCH_CALL_ENGINE_SSOT_V2": {
+    "description": "CallEngine remains the single source of truth even when wrapped by VoiceCallSdk",
+    "rules": [
+      "Call state mutations flow through CallEngine",
+      "Facade layers must not duplicate call lifecycle state",
+      "Unified callbacks may observe state but not replace engine authority"
+    ]
+  },
+  "SEC_SIGNAL_VALIDATION_REQUIRED_V1": {
+    "description": "Signal validation is mandatory before VoiceCallSdk processes call setup",
+    "rules": [
+      "VoiceCallSdk must reject invalid or incomplete signaling payloads",
+      "Token and signaling validation remain required preconditions for call setup"
+    ]
+  },
+  "SEC_SECURE_RANDOM_CALL_ID_V1": {
+    "description": "Call identifiers must use secure random generation rather than timestamps",
+    "rules": [
+      "Timestamp-based call IDs are not permitted",
+      "Generated call IDs must be suitable for external signaling contexts"
+    ]
+  },
+  "TEST_WIDGET_SKIP_USER_APPROVED_V1": {
+    "description": "A known flaky widget test may remain skipped when explicitly approved by the user and the rest of the suite passes",
+    "rules": [
+      "Document the intentional skip in memory or task notes",
+      "Keep the skip scoped to the flaky test only",
+      "Preserve passing coverage for the remaining suite"
+    ]
+  },
+  "ARCH_SDKCONNECT_PUBLIC_FACADE_V1": {
+    "description": "SDKConnect is the neutral public facade and documented entry point for sdk_connect",
+    "rules": [
+      "SDKConnect is the primary and documented public entry point",
+      "Barrel exports are narrowed to SDKConnect facade and core models",
+      "Callbacks and events are unified under SDKConnect",
+      "Voice flow uses callType=voice and reserves video for additive expansion",
+      "Example app and README use SDKConnect.create as the integration path",
+      "VoiceCallSdk remains an internal compatibility layer behind SDKConnect"
+    ]
+  },
+  "ARCH_VIDEO_CALL_ADDITIVE_V1": {
+    "description": "Video support added additively via SDKConnectCallType.video; no breaking changes to voice path",
+    "rules": [
+      "startCall/acceptCall auto-enable camera when callType=video via CallEngine.setVideoEnabled",
+      "VoiceCallSdk.setVideoEnabled and toggleCamera are wired through to CallEngine",
+      "Voice callType remains unaffected by video additions"
+    ]
+  },
+  "ARCH_SDKCONNECT_VOICE_VIDEO_FACADE_SPLIT_V1": {
+    "description": "SDKConnect exposes a neutral public facade while voice/video concerns remain split behind facade layers with CallEngine as SSOT",
+    "rules": [
+      "SDKConnect owns the public voice/video entry surface",
+      "Facade split must not duplicate lifecycle authority already owned by CallEngine",
+      "Voice and video wrappers propagate callType into CallEngine rather than inferring it later"
+    ]
+  },
+  "RULE_CALLTYPE_PROPAGATION_REQUIRED_V1": {
+    "description": "Call type must propagate from facade entrypoints into CallEngine lifecycle decisions",
+    "rules": [
+      "startCall and acceptCall must carry explicit callType through the facade boundary",
+      "CallEngine state and downstream media decisions derive from propagated callType",
+      "Defaulting or re-deriving callType after facade entry is not permitted when the caller already chose it"
+    ]
+  },
+  "MEDIA_VIDEO_CAMERA_V1": {
+    "description": "MediaEngine extended with camera control; CallState tracks video enablement",
+    "rules": [
+      "MediaEngine interface exposes setCameraOn(bool) and isVideoEnabled",
+      "LiveKitMediaEngine implements setCameraOn via localParticipant.setCameraEnabled",
+      "CallState includes isVideoEnabled field as source of truth for video state"
+    ]
+  },
+  "SEC_TOKEN_EXPIRY_CHECK_V1": {
+    "description": "JWT expiry enforced in CallEngine before media connect",
+    "rules": [
+      "CallEngine._validateConnectParams decodes JWT payload via base64url",
+      "exp claim is checked against current clock time",
+      "Expired tokens throw CallLifecycleException before any media connection attempt"
+    ]
+  },
+  "SEC_SIGNAL_REJECT_EMITS_ERROR_V1": {
+    "description": "Invalid or rejected signals emit VoiceCallErrorEvent instead of silent drop",
+    "rules": [
+      "VoiceCallSdk._handleSignal emits VoiceCallErrorEvent on invalid envelope (signal.validation_failed)",
+      "signalValidator rejection emits VoiceCallErrorEvent (signal.validation_rejected)",
+      "Silent signal drops are not permitted"
+    ]
+  },
+  "SEC_ACCEPT_CALLTYPE_MISMATCH_GUARD_V1": {
+    "description": "Accept flows must reject callType mismatches before joining media or mutating active call state",
+    "rules": [
+      "acceptCall validates that requested callType matches the pending/incoming session type",
+      "Mismatched accept attempts fail fast with a guard error",
+      "Media join and state transition must not proceed after a callType mismatch"
+    ]
+  },
+  "TEST_COVERAGE_V3": {
+    "description": "33 tests passing (0 skipped) as of 2026-05-08",
+    "rules": [
+      "New tests cover: video start enables camera, setVideoEnabled toggle, expired JWT rejection, malformed JWT, signalValidator rejection emits error, invalid envelope emits error",
+      "Widget test skip remains intentional per TEST_WIDGET_SKIP_USER_APPROVED_V1"
+    ]
+  },
+  "TEST_CALLTYPE_GUARDS_V1": {
+    "description": "Facade split and accept mismatch guards are covered by targeted tests",
+    "rules": [
+      "Tests verify callType propagates through SDKConnect facade into CallEngine",
+      "Tests verify acceptCall rejects mismatched callType before connection side effects"
+    ]
+  },
+  "ARCH_PRODUCTION_RELIABILITY_SDKCONNECT_V1": {
+    "description": "SDKConnect reliability layer supports resilient real-time calling under fluctuating network conditions",
+    "rules": [
+      "CallEngine supports automatic reconnect orchestration after transient disconnects",
+      "ICE recovery hook is available to trigger transport/path recovery workflows",
+      "Silent token refresh hook can renew auth without forcing user-visible teardown",
+      "Adaptive audio-priority fallback can degrade media strategy to preserve call continuity",
+      "Network quality thresholds are configurable and not hard-coded",
+      "Reconnect, recovered, and token lifecycle events are surfaced to consumers"
+    ]
+  },
+  "SEC_SILENT_TOKEN_REFRESH_HOOK_V1": {
+    "description": "Token rotation path is designed for uninterrupted sessions",
+    "rules": [
+      "Token refresh hooks must avoid exposing raw token values in logs/events",
+      "Refresh failures emit explicit lifecycle events for caller-controlled handling",
+      "Recovered auth state must revalidate connect preconditions before media escalation"
+    ]
+  },
+  "ARCH_LIFECYCLE_SAFETY_V1": {
+    "description": "Production-grade lifecycle safety: strict phase transitions, serialized operations, app lifecycle and interruption handling",
+    "rules": [
+      "Invalid phase transitions (e.g., connecting→connecting) are rejected by CallEngine guard",
+      "All state-mutating operations are enqueued and executed serially to prevent races",
+      "App lifecycle events (foreground/background/interrupted) are handled internally by CallEngine",
+      "Interruption recovery (calls/notifications/audio-session loss) restores state without consumer action",
+      "Audio route change events are surfaced via callback; speaker/routing decisions remain consumer-controlled"
+    ]
+  },
+  "ARCH_SERIALIZED_MEDIA_EVENTS_V1": {
+    "description": "Media-event mutations are serialized through the CallEngine internal queue",
+    "rules": [
+      "All media state changes (mute, camera, speaker) are dispatched through the engine queue",
+      "Signal replay cache is bounded to prevent unbounded memory growth",
+      "Signal replay cache is cleared when CallEngine returns to idle phase"
+    ]
+  },
+  "SEC_RECONNECT_TOKEN_RACE_GUARD_V1": {
+    "description": "Reconnect and token refresh paths are guarded against concurrent execution races",
+    "rules": [
+      "A reconnect in-progress flag prevents parallel reconnect attempts",
+      "Token refresh guards prevent a stale token from racing a fresh one into media connect",
+      "Race guard state is reset only after the guarded operation fully resolves or fails"
+    ]
+  },
+  "ARCH_CALL_ENGINE_SERIALIZED_OPS": {
+    "description": "All CallEngine state-mutating operations are serialized through a single _operationQueue chain",
+    "rules": [
+      "start, accept, reject, end, mute, speaker, video, and lifecycle ops all chain through _operationQueue",
+      "Media event handlers route through the queue via _runSerialized",
+      "No state-mutating path bypasses the queue"
+    ]
+  },
+  "ARCH_LIFECYCLE_OBSERVER_V1": {
+    "description": "VoiceCallSdk registers as WidgetsBindingObserver internally with safety guards",
+    "rules": [
+      "Register/unregister wrapped in try/catch to be safe in non-widget test environments",
+      "Observer registration is managed by VoiceCallSdk, not consumer code"
+    ]
+  },
+  "ARCH_INTERRUPTION_RECOVERY_V1": {
+    "description": "CallEngine tracks _isInterrupted flag and recovers media session after interruptions",
+    "rules": [
+      "paused/inactive/hidden lifecycle states emit interruptionStarted",
+      "resumed after interruption triggers _restoreMediaSession",
+      "_restoreMediaSession reconnects if needed and restores mute/speaker/video state"
+    ]
+  },
+  "ARCH_AUDIO_ROUTE_EVENTS_V1": {
+    "description": "setSpeakerOn emits audioRouteChanged event from CallEngine",
+    "rules": [
+      "CallEngine emits audioRouteChanged after setSpeakerOn",
+      "LiveKitMediaEngine emits audioRouteChanged MediaEngineEvent on setSpeakerOn"
+    ]
+  },
+  "ARCH_TOKEN_REFRESH_DEDUP_V1": {
+    "description": "Token refresh deduplication via _tokenRefreshInFlight shared future",
+    "rules": [
+      "Concurrent reconnect paths share the same _tokenRefreshInFlight future",
+      "tokenRefresher is not called multiple times during concurrent reconnects"
+    ]
+  },
+  "ARCH_RECONNECT_INFLIGHT_GUARD_V1": {
+    "description": "_isReconnectAttemptInFlight bool prevents double-entry reconnect attempts",
+    "rules": [
+      "Guard is set before reconnect logic begins and cleared on completion or failure"
+    ]
+  },
+  "ARCH_STRICT_TRANSITIONS_V1": {
+    "description": "_isTransitionAllowed matrix enforces valid FSM edges at every _transition call",
+    "rules": [
+      "Invalid phase transitions are rejected before any side effects occur",
+      "All state-mutation paths invoke _transition through the guarded matrix"
+    ]
+  },
+  "SEC_REPLAY_BOUNDED_CACHE_V1": {
+    "description": "Signal replay dedup set is bounded to 512 entries with LRU eviction",
+    "rules": [
+      "LRU order queue tracks eviction order; oldest entry removed when limit reached",
+      "Cache is cleared on idle transition to prevent stale replay entries"
+    ]
+  },
+  "ARCH_ACTION_DEBOUNCE_V1": {
+    "description": "_isActionDebounced with per-action key and 350ms default window prevents burst duplicates",
+    "rules": [
+      "Each action uses its own key in the debounce map",
+      "Default debounce window is 350ms unless overridden per action"
+    ]
+  },
+  "ARCH_EXAMPLE_VOICE_VIDEO_STRUCTURE_V1": {
+    "description": "Example app usage is organized by feature folders with centralized bootstrap and config",
+    "rules": [
+      "example/main.dart remains the bootstrap entry point",
+      "SDK configuration is centralized in example/config/config_sdk.dart",
+      "Incoming call UI is isolated in example/call_screen/incoming_call_screen.dart",
+      "Voice and video call screens live in example/voice/voice_call_screen.dart and example/video/video_call_screen.dart"
+    ]
+  },
+  "ARCH_EXAMPLE_CONSUMER_FACADE_ONLY_V1": {
+    "description": "Example consumers integrate through SDKConnect facade/widgets only and avoid direct LiveKit coupling",
+    "rules": [
+      "Example code must consume SDKConnect facade APIs and SDK-provided widgets",
+      "Example layers must not import or call LiveKit directly"
+    ]
+  },
+  "ARCH_EXAMPLE_BOOTSTRAP_NAV_ONLY_V1": {
+    "description": "example/main.dart is limited to bootstrap wiring and navigation composition",
+    "rules": [
+      "Feature behavior/state logic lives in feature screens (voice/video)",
+      "main.dart should not own call lifecycle behavior beyond startup/navigation"
+    ]
+  },
+  "ARCH_EXAMPLE_REMOTE_WIDGET_RENDERING_V1": {
+    "description": "Example voice/video feature screens use SDK remote widgets for plug-and-play rendering",
+    "rules": [
+      "Voice feature uses RemoteVoiceCallWidget for remote rendering",
+      "Video feature uses RemoteVideoCallWidget for remote rendering"
+    ]
+  },
+  "ARCH_EXAMPLE_SHARED_BOOTSTRAP_INIT_V1": {
+    "description": "SDK init, token provider, and callId generation are centralized in bootstrap to prevent duplicated setup",
+    "rules": [
+      "Shared SDK initialization lives in bootstrap layer",
+      "Token provider wiring is shared and reused across feature screens",
+      "CallId generation is centralized and reused instead of duplicated per screen"
+    ]
+  },
+  "ARCH_P2P_LIFECYCLE_EXCEPTION_GUARD_V1": {
+    "description": "P2P max-2 participant contract is preserved with explicit lifecycle exception handling on over-capacity attempts",
+    "rules": [
+      "P2P flow remains capped at 2 participants",
+      "Attempts to exceed 2 participants must fail through lifecycle exception handling",
+      "Over-capacity attempts must not silently proceed into media/session state"
+    ]
+  },
+  "ARCH_MEDIA_SESSION_ONLY_OWNERSHIP_V1": {
+    "description": "SDKConnect architecture enforces media/session ownership in SDK facade and CallEngine while removing signaling ownership from SDK and engine layers",
+    "rules": [
+      "SDK and CallEngine do not own signaling transport or signaling orchestration",
+      "CallEngine remains the SSOT for call lifecycle and state transitions",
+      "Lifecycle phases are strictly limited to idle, connecting, connected, reconnecting, disconnected, failed",
+      "Media/session orchestration remains internal while signaling integration is externalized"
+    ]
+  },
+  "ARCH_CALL_ENGINE_SSOT_V3": {
+    "description": "CallEngine is the authoritative single source of truth for runtime call state",
+    "rules": [
+      "No facade, SDK wrapper, or signaling adapter duplicates lifecycle ownership",
+      "All lifecycle transitions and state mutations are derived from CallEngine",
+      "Public callbacks and events reflect engine state instead of creating parallel state"
+    ]
+  },
+  "ARCH_LIFECYCLE_PHASE_SET_V1": {
+    "description": "Allowed lifecycle phases are fixed and enforced for interoperability and safety",
+    "rules": [
+      "Allowed phases: idle, connecting, connected, reconnecting, disconnected, failed",
+      "No additional implicit phases are introduced by wrappers or adapters",
+      "Transition guards must reject unknown or out-of-contract phase changes"
+    ]
+  },
+  "ARCH_RECONNECT_REFRESH_DEDUP_V2": {
+    "description": "Reconnect and token refresh paths are deduplicated to avoid race conditions",
+    "rules": [
+      "Concurrent reconnect attempts are coalesced into a single in-flight operation",
+      "Concurrent token refresh requests share one in-flight future/promise",
+      "Dedup guards are reset only after operation completion or terminal failure"
+    ]
+  },
+  "SEC_PUBLIC_ERROR_SANITIZATION_V1": {
+    "description": "Errors emitted through public callbacks/events are sanitized before exposure",
+    "rules": [
+      "No raw internal exceptions or sensitive payload fragments are exposed publicly",
+      "Public error events use stable, non-sensitive codes/messages",
+      "Sanitization applies to callback, stream, and event-based public surfaces"
+    ]
+  },
+  "RULE_P2P_MAX_2_ENFORCED_V1": {
+    "description": "Peer-to-peer sessions are limited to two participants",
+    "rules": [
+      "P2P call model must enforce a maximum of 2 participants",
+      "Scaling beyond 2 requires a different topology contract (e.g., SFU)"
+    ]
+  },
+  "ARCH_CONNECTION_LOSS_SINGLE_SOURCE_V1": {
+    "description": "Connection-loss signaling is centralized and emitted from a single terminal lifecycle source",
+    "rules": [
+      "onConnectionLost must not be emitted from multiple reconnect or participant-leave paths",
+      "Terminal disconnect callbacks must be deduplicated",
+      "Connection-loss emission must remain lifecycle-state driven"
+    ]
+  },
+
+  "ARCH_WIDGET_RENDER_PURITY_V1": {
+    "description": "SDKConnect widgets must remain render-only and avoid realtime lifecycle side effects in build paths",
+    "rules": [
+      "Widget build methods must not trigger lifecycle side effects",
+      "Call-ended callbacks must be handled through listeners/subscriptions",
+      "Realtime lifecycle orchestration must remain outside widget rendering"
+    ]
+  },
+
+  "ARCH_REMOTE_PARTICIPANT_TERMINATION_V1": {
+    "description": "Remote participant leave is treated as terminal session termination instead of reconnect scenario",
+    "rules": [
+      "Remote participant leave must immediately terminate active session",
+      "Participant leave must not trigger reconnect flow",
+      "Session teardown must remain deterministic after remote leave"
+    ]
+  },
+
+  "ARCH_TERMINAL_EVENT_DEDUP_V1": {
+    "description": "Terminal lifecycle callbacks are protected against duplicate emission",
+    "rules": [
+      "Disconnected/ended terminal callbacks must emit once per lifecycle termination",
+      "Reconnect-failed and participant-left paths must not duplicate terminal callbacks",
+      "Lifecycle terminal emission uses fingerprint/guard protection"
+    ]
+  },
+  "DOCS_README_EXAMPLE_USAGE_V1": {
+    "description": "README Example Usage includes a small navigation snippet showing feature-based example structure with shared SDKConnect instance",
+    "rules": [
+      "README demonstrates main→voice/video navigation pattern",
+      "Code snippet shows shared SDKConnect instance reuse across feature screens",
+      "createCallId pattern is documented for consumer usage",
+      "Docs remain aligned with SDK-only consumer usage (no direct LiveKit imports)"
+    ]
+  },
+
+  "ARCH_WIDGET_PHASE_MAPPING_V1": {
+    "description": "SDKConnectWidgetPhase maps RTC connection states to 3 consumer-facing widget phases",
+    "rules": [
+      "Phases: calling (connecting), connected (connected|reconnecting), ended (idle|disconnected|failed) for UI aggregation",
+      "Static method SDKConnectWidgetPhase.from(SDKConnectConnectionState) is the single source of truth for mapping",
+      "Defined in sdk_connect_api.dart"
+    ]
+  },
+
+  "RULE_PUBLIC_API_NO_INVITATION_LIFECYCLE_OWNERSHIP_V1": {
+    "description": "SDK/public APIs do not own invitation accept/reject lifecycle orchestration",
+    "rules": [
+      "Invitation accept/reject lifecycle remains external to SDKConnect runtime lifecycle ownership",
+      "SDKConnect public APIs consume caller-provided accept/reject outcomes rather than orchestrating invitation state machines",
+      "CallEngine and SDK facade remain focused on media/session lifecycle once consumer signaling decisions are made"
+    ]
+  },
+
+  "ARCH_EXAMPLE_SIGNALING_STATE_MINIMAL_V1": {
+    "description": "Example signaling state remains minimal and external to SDK lifecycle",
+    "rules": [
+      "Example signaling state model is limited to idle, dialing, rejected",
+      "Example signaling state remains outside SDKConnect and CallEngine lifecycle ownership",
+      "Example signaling state should not duplicate SDK lifecycle phases"
+    ]
+  },
+
+  "DOCS_README_TOKEN_CONFIDENTIALITY_GUARDS_V1": {
+    "description": "README must preserve token confidentiality and safe auth guidance",
+    "rules": [
+      "README examples require short-lived access tokens",
+      "README guidance explicitly forbids token logging",
+      "Documentation must avoid exposing raw token values in code snippets or logs"
+    ]
+  },
+
+  "ARCH_WIDGET_CALLBACKS_V1": {
+    "description": "SDKConnectWidgetCallbacks exposes 4 optional consumer callbacks for widget phase and lifecycle events",
+    "rules": [
+      "onCallStateChanged(phase): fires on every widget phase transition",
+      "onReconnect(): fires once per reconnecting entry via prev-state comparison",
+      "onDisconnected(reason): fires on terminal states (disconnected|failed)",
+      "onEnded(reason): fires exactly once per terminal state via _hasNotifiedTerminal guard",
+      "Defined in sdk_connect_api.dart"
+    ]
+  },
+
+  "RULE_WIDGET_OBSERVER_ONLY_V1": {
+    "description": "Remote widgets are pure observers and own no lifecycle, signaling, or reconnect logic",
+    "rules": [
+      "RemoteVoiceCallWidget and RemoteVideoCallWidget fire callbacks but do not own lifecycle",
+      "CallEngine remains the SSOT for all lifecycle decisions",
+      "Widgets must not initiate reconnect or signaling flows"
+    ]
+  },
+
+  "ARCH_VIDEO_WIDGET_STATEFUL_V1": {
+    "description": "RemoteVideoCallWidget is a StatefulWidget to support subscription lifecycle and callback deduplication",
+    "rules": [
+      "Converted from StatelessWidget to StatefulWidget",
+      "State owns stream subscription and dedup tracking flags",
+      "didUpdateWidget re-wires subscription and resets tracking state when sdk instance changes"
+    ]
+  },
+
+  "RULE_RECONNECT_CALLBACK_DEDUP_V1": {
+    "description": "onReconnect and onEnded callbacks are deduplicated with per-lifecycle guards",
+    "rules": [
+      "onReconnect fires once per reconnecting entry via _prevConnectionState comparison",
+      "onEnded fires exactly once per terminal lifecycle via _hasNotifiedTerminal flag",
+      "_hasNotifiedTerminal and _prevConnectionState are reset in didUpdateWidget on sdk instance change"
+    ]
+  },
+
+  "RULE_TERMINAL_STATES_V1": {
+    "description": "Terminal states that trigger disconnect and ended callbacks are disconnected and failed",
+    "rules": [
+      "disconnected and failed both fire onDisconnected + onEnded",
+      "idle is not a terminal trigger",
+      "Terminal callbacks are protected against duplicate emission via _hasNotifiedTerminal"
+    ]
+  },
+
+  "RULE_SDK_INSTANCE_REWIRE_V1": {
+    "description": "Widget state is fully reset and re-wired when the sdk instance changes via didUpdateWidget",
+    "rules": [
+      "Subscription is cancelled and re-subscribed on sdk instance change",
+      "_prevConnectionState and _hasNotifiedTerminal are reset on sdk instance change",
+      "Applies to both RemoteVoiceCallWidget and RemoteVideoCallWidget"
+    ]
+  }
+}

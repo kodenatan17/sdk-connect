@@ -1,0 +1,86 @@
+name: Firebase App Distribution
+
+on:
+  push:
+    branches:
+      - develop
+      - staging
+      - main
+  workflow_dispatch:
+    inputs:
+      distribution_group:
+        description: 'Tester Group'
+        required: true
+        default: 'internal-testers'
+        type: choice
+        options:
+          - internal-testers
+          - beta-testers
+
+jobs:
+  distribute:
+    name: Build and Distribute to Firebase
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+      
+      - name: Get Flutter dependencies
+        run: flutter pub get
+      
+      - name: Run code generation
+        run: flutter pub run build_runner build --delete-conflicting-outputs
+      
+      - name: Build APK
+        run: flutter build apk --release
+      
+      - name: Setup Firebase CLI
+        run: |
+          curl -sL https://firebase.tools | bash
+      
+      - name: Authenticate Firebase
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          firebase login:ci --token $FIREBASE_TOKEN
+      
+      - name: Distribute to Firebase
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          cd android
+          ./gradlew appDistributionUploadRelease
+      
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
+      
+      - name: Notify success
+        if: success()
+        run: |
+          echo "✅ Distribution successful!"
+          echo "Check Firebase Console: https://console.firebase.google.com/project/prison-82a3d/appdistribution"
+      
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "❌ Distribution failed!"
+          echo "Please check the logs for details"
+
