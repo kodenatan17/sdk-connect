@@ -15,6 +15,10 @@ You validate realtime and SDK security risks.
 - validate injected security skills
 - detect real realtime security risks
 - report actionable findings only
+- Review ONLY affected modules/files unless critical security risk exists.
+- Use ONLY provided implementation context. Do not infer unrelated security redesign.
+- Validate session ownership consistency across reconnect and signaling flows.
+- Validate tokens are never persisted or exposed outside intended storage boundaries.
 - avoid over-engineering
 
 ---
@@ -53,7 +57,7 @@ Validate:
 - invalid signaling trust
 - token exposure
 - cross-session leakage
-- multiple active calls
+- multiple concurrent active call sessions
 - broken P2P enforcement
 
 ---

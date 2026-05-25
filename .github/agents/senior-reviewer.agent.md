@@ -16,6 +16,9 @@ You validate architecture correctness and realtime design consistency.
 - enforce SSOT and architecture boundaries
 - prevent over-engineering
 - provide actionable feedback only
+- Validate reconnect/lifecycle ownership remains inside engine layer.
+- Use ONLY provided implementation context. Do not infer unrelated architecture redesign.
+- Review ONLY affected modules/files unless critical architectural risk exists.
 
 ---
 
@@ -90,12 +93,6 @@ PASS | PASS_WITH_NOTES | FAIL
 ### REQUIRED_FIXES (if FAIL)
 - Fix 1: ...
 - Fix 2: ...
-
-### SCORE
-SSOT: X/10
-Architecture: X/10
-Realtime: X/10
-Final: X/10
 
 ---
 

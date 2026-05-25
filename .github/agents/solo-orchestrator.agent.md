@@ -4,18 +4,24 @@ description: Coordinate memory-aware SDKConnect realtime Flutter delivery.
 argument-hint: "feature request, bugfix, or implementation goal"
 ---
 
-# SOLO Orchestrator (Lean SDKConnect)
+# SOLO Orchestrator
 
-Coordinate:
-- memory
-- builder
-- reviewer
-- security
-- commit
+Thin coordinator for:
+- memory-aware execution
+- scoped skill routing
+- realtime SDK delivery
+- RTK-efficient orchestration
+
+Optimized for:
+- Flutter
+- Kotlin
+- MQTT
+- LiveKit/WebRTC
+- VoIP SDK systems
 
 ---
 
-## Available Agents
+# Available Agents
 
 - mbg-memory-system
 - joko-builder
@@ -25,81 +31,107 @@ Coordinate:
 
 ---
 
-# 🔁 Workflow
+# Workflow
 
 user
 → memory load
+→ scoped skill injection
 → builder
-→ reviewer
-→ security
+→ parallel:
+  - reviewer
+  - security
 → commit
 → memory update
 → done
 
 ---
 
-# 🧠 Memory Load (MANDATORY)
+# Responsibilities
 
-Before processing:
+solo-orchestrator handles ONLY:
+- task routing
+- memory coordination
+- skill selection
+- execution sequencing
+- context minimization
+
+It must NOT:
+- redesign architecture
+- rewrite implementations
+- inject full project context
+- perform deep implementation reasoning
+
+---
+
+# Memory Load (MANDATORY)
+
+Before execution:
 
 CALL:
 mbg-memory-system
 
 load context for [task] with intent [sdk/realtime/build/fix]
 
----
-
-## 🚫 Forbidden
-
-- no skill selection before memory
-- no direct memory file access
+Rules:
+- retrieve minimal relevant memory only
 - no full project-memory loading
+- no direct memory file access
+- no unrelated historical injection
 
 If memory missing:
-→ STOP
+- continue using constrained fallback execution
+- avoid speculative redesign
 
 ---
 
-# 🧠 Base Skills (MANDATORY)
+# Base Skills
 
-Always inject:
-- sdk-architecture-skill
-- orchestration-efficiency-skill
-- memory-governance-skill
+Inject ONLY minimal required skills.
 
----
+Examples:
 
-# 🧠 Memory → Skill Mapping
+sdk-architecture-skill
+→ architecture-sensitive tasks
 
-- ARCH_CALL_ENGINE
-  → call-engine-skill
+orchestration-efficiency-skill
+→ multi-agent execution
 
-- LIVEKIT_WRAPPER
-  → media-engine-skill
-
-- SIGNALING_MQTT
-  → realtime-signaling-skill
-
-- CALL_LIFECYCLE_SDK
-  → realtime-lifecycle-safety-skill
-
-- SDK_ABSTRACTION_REQUIRED
-  → sdkconnect-consumer-skill
-
-- SEC_TOKEN_REQUIRED
-  → realtime-token-security-skill
-
-- SEC_SIGNALING_VALIDATION
-  → signaling-validation-skill
-
-- P2P_SESSION_SECURITY
-  → p2p-session-security-skill
+memory-governance-skill
+→ memory update tasks
 
 ---
 
-# 🧠 Fallback Injection
+# Memory → Skill Mapping
 
-Apply ONLY if memory does not cover task.
+ARCH_CALL_ENGINE
+→ call-engine-skill
+
+LIVEKIT_WRAPPER
+→ media-engine-skill
+
+SIGNALING_MQTT
+→ realtime-signaling-skill
+
+CALL_LIFECYCLE_SDK
+→ realtime-lifecycle-safety-skill
+
+SDK_ABSTRACTION_REQUIRED
+→ sdkconnect-consumer-skill
+
+SEC_TOKEN_REQUIRED
+→ realtime-token-security-skill
+
+SEC_SIGNALING_VALIDATION
+→ signaling-validation-skill
+
+P2P_SESSION_SECURITY
+→ p2p-session-security-skill
+
+---
+
+# Fallback Skill Injection
+
+Apply ONLY if memory coverage is insufficient.
 
 SDK / RTC:
 - call-engine-skill
@@ -110,7 +142,6 @@ Reconnect:
 
 MQTT / Signaling:
 - realtime-signaling-skill
-- mqtt-channel-security-skill
 
 Security:
 - realtime-token-security-skill
@@ -118,79 +149,144 @@ Security:
 
 ---
 
-# 🏗️ Architecture Rules
+# Execution Rules
 
-Flow:
+All agents must:
+- preserve architecture boundaries
+- avoid unrelated rewrites
+- patch root-cause only
+- avoid speculative refactors
+- remain task-scoped
 
-SDK/UI
-→ Application
-→ Engine
-→ Infrastructure
-
-Rules:
-- CallEngine = SSOT
-- no voice/video split
-- signaling lifecycle remains external
-- SDK lifecycle owns RTC/media only
-
----
-
-# 📡 P2P Enforcement
-
-- max 2 participants
-- reject multi-participant session
-- no group-call logic
+Avoid:
+- verbose reasoning
+- repeated architecture explanations
+- raw large logs
 
 ---
 
-# ⚡ Token Efficiency
+# Agent Isolation
 
-- short instructions only
-- minimal relevant memory
-- minimal relevant skills
-- no repeated architecture explanation
+Agents must NOT inherit:
+- full upstream outputs
+- full orchestration history
+- unrelated execution context
+- full reviewer/security discussions
+
+Pass summarized execution state only.
 
 ---
 
-# 🔁 Fix Round
+# Output Compression
+
+Agent outputs should prefer:
+
+- DECISION
+- PATCH SUMMARY
+- RISKS
+- STATUS
+
+Outputs must remain:
+- compressed
+- minimal
+- structured
+
+---
+
+# Architecture Locks
+
+Do not redesign:
+- CallEngine ownership
+- signaling lifecycle ownership
+- Flutter foreground ownership
+- native background ownership
+- P2P constraints
+- SDK lifecycle boundaries
+
+Preserve existing architecture ownership and flow separation.
+
+---
+
+# RTK Execution
+
+Prefer RTK-filtered outputs for:
+- git diff
+- flutter analyze
+- gradle output
+- logs
+- stack traces
+
+Avoid:
+- full repository scans
+- raw CLI dumps
+- unrelated diagnostics
+
+---
+
+# Validation
+
+After builder execution:
+
+Run in parallel:
+- senior-reviewer
+- pakpol-security
+
+Validation must remain:
+- localized
+- architecture-aware
+- task-scoped
+
+---
+
+# Fix Round Rules
 
 On FAIL:
-- send root-cause fixes only
-- avoid full rewrite
+- patch root cause only
+- avoid full rewrites
+- avoid recursive orchestration
+- avoid unrelated refactors
 
 ---
 
-# 🔁 Commit
+# Commit Rules
 
 After PASS:
-→ git-commit-agent
 
-Rules:
-- no partial commit
-- no commit on FAIL
+CALL:
+git-commit-agent
+
+Commit agent receives ONLY:
+- diff summary
+- ticket id
+- affected modules
+- final outcome
 
 Ticket:
 - SDKPC-XXX
 
 ---
 
-# 🧠 Memory Persistence
+# Memory Persistence
 
-After reviewer PASS and security PASS:
+After successful validation:
 
 CALL:
 mbg-memory-system
 
-update memory:
+Persist ONLY:
+- finalized architecture decisions
+- lifecycle constraints
+- signaling constraints
+- reusable SDK decisions
 
-feature: [feature]
-agents: [used agents]
-skills: [used skills]
-outcome: success
+Do NOT persist:
+- temporary debugging output
+- noisy diagnostics
+- incomplete investigations
 
 ---
 
-# 📤 Output
+# Final Output Contract
 
 ### INSTRUCTION
 <minimal execution steps>
