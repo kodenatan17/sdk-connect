@@ -1,0 +1,327 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "agent": {
+    "finder": {
+      "description": "Fast codebase scout. Finds files, symbols, patterns, project structure and relevant implementation locations.",
+      "mode": "subagent",
+      "model": "ninerouter/researcher-fast",
+
+      "tools": {
+        "task": false,
+        "bash": false,
+
+        "read": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+
+        "write": false,
+        "edit": false,
+
+        "lsp": false,
+        "webfetch": false,
+
+        "todowrite": false,
+        "todoread": false
+      }
+    },
+
+    "analyst": {
+      "description": "Deep code analyst. Traces dependencies, architecture, data flow, side effects, risks and root causes.",
+
+      "mode": "subagent",
+
+      "model": "ninerouter/researcher-deep",
+
+      "tools": {
+        "task": false,
+        "bash": false,
+
+        "read": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+
+        "write": false,
+        "edit": false,
+
+        "webfetch": false,
+
+        "todowrite": false,
+        "todoread": false
+      }
+    },
+
+    "researcher": {
+      "description": "External knowledge researcher. Searches official documentation, platform guidelines, best practices and implementation references.",
+
+      "mode": "subagent",
+
+      "model": "ninerouter/researcher-deep",
+
+      "tools": {
+        "task": false,
+        "bash": false,
+
+        "read": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+
+        "write": false,
+        "edit": false,
+
+        "webfetch": true,
+
+        "todowrite": false,
+        "todoread": false
+      }
+    },
+    "planner": {
+      "description": "Task decomposer. Breaks down architectural designs into atomic, executable tasks.",
+      "mode": "subagent",
+      "model": "ninerouter/researcher-fast",
+      "tools": {
+        "task": false,
+        "bash": false,
+        "read": true,
+        "write": false,
+        "edit": false,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "webfetch": false,
+        "todowrite": true,
+        "todoread": true
+      }
+    },
+    "coder": {
+      "description": "Code writer. Creates new files, functions, classes based on design and task specifications.",
+      "mode": "subagent",
+      "model": "ninerouter/implementation-high",
+      "tools": {
+        "task": false,
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "editor": {
+      "description": "Code editor. Modifies existing files, adds features to existing code, integrates components.",
+      "mode": "subagent",
+      "model": "ninerouter/implementation-low",
+      "tools": {
+        "task": false,
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "fixer": {
+      "description": "Bug fixer. Fixes bugs with minimal changes based on debugger diagnosis or error reports.",
+      "mode": "subagent",
+      "model": "ninerouter/implementation-low",
+      "tools": {
+        "task": false,
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "refactorer": {
+      "description": "Code refactorer. Improves code structure without changing behavior.",
+      "mode": "subagent",
+      "model": "ninerouter/implementation-low",
+      "tools": {
+        "task": false,
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "reviewer": {
+      "description": "Code reviewer. Reviews code changes for quality, best practices, and potential issues.",
+      "mode": "subagent",
+      "model": "ninerouter/quality-high",
+      "tools": {
+        "task": false,
+        "bash": false,
+        "read": true,
+        "write": false,
+        "edit": false,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "tester": {
+      "description": "Test engineer. Writes and runs tests to verify code correctness and coverage.",
+      "mode": "subagent",
+      "model": "ninerouter/quality-safer",
+      "tools": {
+        "task": false,
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "debugger": {
+      "description": "Bug investigator. Finds root cause of bugs through systematic analysis and tracing.",
+      "mode": "subagent",
+      "model": "ninerouter/quality-high",
+      "tools": {
+        "task": false,
+        "bash": true,
+        "read": true,
+        "write": false,
+        "edit": false,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "security": {
+      "description": "Security auditor. Audits code for vulnerabilities, security best practices, and compliance.",
+      "mode": "subagent",
+      "model": "ninerouter/quality-high",
+      "tools": {
+        "task": false,
+        "bash": false,
+        "read": true,
+        "write": false,
+        "edit": false,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "documenter": {
+      "description": "Technical writer. Creates and updates technical documentation, README files, and API docs.",
+      "mode": "subagent",
+      "model": "ninerouter/documentation-low",
+      "tools": {
+        "task": false,
+        "bash": false,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "commenter": {
+      "description": "Code commenter. Adds JSDoc, inline comments, and code documentation to improve readability.",
+      "mode": "subagent",
+      "model": "ninerouter/documentation-low",
+      "tools": {
+        "task": false,
+        "bash": false,
+        "read": true,
+        "write": false,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "devops": {
+      "description": "DevOps engineer. Manages CI/CD pipelines, Docker configurations, deployment scripts, and infrastructure.",
+      "mode": "subagent",
+      "model": "ninerouter/infrastructure-high",
+      "tools": {
+        "task": false,
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    },
+    "optimizer": {
+      "description": "Performance optimizer. Analyzes and improves code performance, memory usage, and efficiency.",
+      "mode": "subagent",
+      "model": "ninerouter/infrastructure-low",
+      "tools": {
+        "task": false,
+        "bash": true,
+        "read": true,
+        "write": true,
+        "edit": true,
+        "list": true,
+        "glob": true,
+        "grep": true,
+        "lsp": true,
+        "webfetch": false,
+        "todowrite": false,
+        "todoread": true
+      }
+    }
+  }
+}
